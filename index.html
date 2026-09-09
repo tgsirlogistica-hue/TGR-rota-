@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>Rotas TGR - Motoristas</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+html,body{height:100%;margin:0;font-family:Arial,sans-serif;background:#f4f4f4}
+#map{height:100%}
+.topo{position:absolute;z-index:1000;left:12px;right:auto;top:12px;width:430px;max-width:calc(100vw - 24px);margin:0;background:white;padding:13px;border-radius:12px;box-shadow:0 2px 14px #0004;box-sizing:border-box}
+h2{font-size:18px;margin:0 0 4px;color:#c00000}
+.sub{font-size:12px;color:#666;margin-bottom:9px}
+select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radius:8px;background:#fff}
+.info{display:none;margin-top:9px;padding-top:8px;border-top:1px solid #ddd;font-size:13px;line-height:1.45}
+.pedidos{display:none;margin-top:10px;max-height:42vh;overflow:auto;border-top:1px solid #ddd;padding-top:8px}
+.pedidosTitulo{font-size:14px;font-weight:bold;margin-bottom:7px}
+.pedidoItem{cursor:pointer;background:#fafafa;border:1px solid #ddd;border-radius:8px;padding:8px;margin-bottom:7px;font-size:12px;line-height:1.45}
+.pedidoTopo{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.pedidoNum{font-weight:bold;color:#c00000;font-size:13px}
+.pedidoPeso{font-weight:bold}
+.statusBtns{display:flex;margin-top:7px}
+.statusBtn{width:100%;border:0;border-radius:6px;padding:9px;font-weight:bold;cursor:pointer;background:#777;color:#fff}
+.statusBtn.atendido{background:#148a2a}
+.statusBtn.pendente{background:#777}
+.num{background:#c00000;color:#fff;border:2px solid #fff;border-radius:16px;min-width:34px;height:30px;padding:0 5px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;font-weight:bold;box-shadow:0 1px 5px #0008}
+.popup{font-size:13px;line-height:1.45;min-width:180px}
+.gps{display:block;text-align:center;text-decoration:none;background:#148a2a;color:white!important;font-weight:bold;padding:9px;margin-top:8px;border-radius:7px}
+@media(max-width:600px){.topo{left:8px;right:auto;top:8px;width:calc(100vw - 16px);max-width:none}}
+
+  #telaInicial{
+    position:fixed; inset:0; z-index:9999; background:#f4f4f4;
+    display:flex; align-items:center; justify-content:center; padding:20px;
+  }
+  .inicioCard{
+    width:min(430px,100%); background:#fff; border-radius:16px; padding:28px 22px;
+    box-shadow:0 8px 30px rgba(0,0,0,.18); text-align:center;
+  }
+  .inicioCard h1{margin:0 0 8px;font-size:26px}
+  .inicioCard p{margin:0 0 20px;color:#666}
+  .inicioCard select{width:100%;padding:13px;border:1px solid #bbb;border-radius:8px;font-size:16px;background:#fff}
+  .inicioCard button{width:100%;margin-top:12px;padding:13px;border:0;border-radius:8px;background:#c00000;color:#fff;font-weight:700;font-size:16px;cursor:pointer}
+  .inicioCard button:disabled{opacity:.45;cursor:not-allowed}
+  #trocarRota{margin-top:8px;padding:7px 10px;border:1px solid #bbb;border-radius:7px;background:#fff;cursor:pointer}
+
+</style>
+</head>
+<body>
+<div id="telaInicial">
+  <div class="inicioCard">
+    <h1>Rotas TGR</h1>
+    <p>Selecione a placa do veículo para acessar a rota.</p>
+    <select id="placaInicial">
+      <option value="">Selecione a placa...</option>
+    </select>
+    <button id="entrarRota" disabled>ABRIR ROTA</button>
+  </div>
+</div>
+
+<div id="map"></div>
+<div class="topo">
+  <h2>Rotas TGR</h2>
+  <div class="sub">Selecione a placa do veículo para visualizar a rota.</div>
+  <div style="display:none"><select id="placa"><option value="">Selecione a placa...</option></select></div>
+  <div id="info" class="info"></div>
+<button id="trocarRota" type="button">VOLTAR</button>
+  <div id="pedidos" class="pedidos"></div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+let dados=[];
+
+function parseCSV(texto){
+  const linhas=[];
+  let linha=[], campo='', aspas=false;
+  for(let i=0;i<texto.length;i++){
+    const c=texto[i];
+    if(c==='"'){
+      if(aspas && texto[i+1]==='"'){campo+='"'; i++;}
+      else aspas=!aspas;
+    }else if(c===';' && !aspas){
+      linha.push(campo); campo='';
+    }else if((c==='\n'||c==='\r') && !aspas){
+      if(c==='\r' && texto[i+1]==='\n') i++;
+      linha.push(campo); campo='';
+      if(linha.some(v=>v!=='')) linhas.push(linha);
+      linha=[];
+    }else{
+      campo+=c;
+    }
+  }
+  if(campo!=='' || linha.length){
+    linha.push(campo);
+    if(linha.some(v=>v!=='')) linhas.push(linha);
+  }
+  return linhas;
+}
+
+async function carregarRotas(){
+  try{
+    const resposta=await fetch('rotas.csv?v='+Date.now(),{cache:'no-store'});
+    if(!resposta.ok) throw new Error('HTTP '+resposta.status);
+
+    let texto=(await resposta.text()).replace(/^\uFEFF/,'');
+    const linhas=parseCSV(texto);
+    if(linhas.length<2) throw new Error('CSV vazio.');
+
+    const cab=linhas[0].map(x=>x.trim());
+    const idx=nome=>cab.indexOf(nome);
+    const pos={
+      cliente:idx('CODIGO DO CLIENTE'),
+      pedido:idx('NUMERO DO PEDIDO'),
+      peso:idx('PESO'),
+      rota:idx('ROTA'),
+      motorista:idx('MOTORISTA'),
+      cidade:idx('CIDADE'),
+      lat:idx('LATITUDE'),
+      lon:idx('LONGITUDE'),
+      gps:idx('LINK GPS'),
+      status:idx('STATUS DO PEDIDO')
+    };
+
+    const faltando=Object.entries(pos).filter(([k,v])=>v<0).map(([k])=>k);
+    if(faltando.length) throw new Error('Colunas ausentes no CSV: '+faltando.join(', '));
+
+    dados=linhas.slice(1).map(cols=>({
+      cliente:String(cols[pos.cliente]??'').trim(),
+      pedido:String(cols[pos.pedido]??'').trim(),
+      peso:String(cols[pos.peso]??'').trim(),
+      rota:String(cols[pos.rota]??'').trim(),
+      motorista:String(cols[pos.motorista]??'').trim(),
+      cidade:String(cols[pos.cidade]??'').trim(),
+      lat:Number(String(cols[pos.lat]??'').replace(',','.')),
+      lon:Number(String(cols[pos.lon]??'').replace(',','.')),
+      gps:String(cols[pos.gps]??'').trim(),
+      status:String(cols[pos.status]??'').trim()
+    })).filter(x=>
+      x.rota &&
+      x.status.toLowerCase()==='roteirizado' &&
+      Number.isFinite(x.lat) &&
+      Number.isFinite(x.lon)
+    );
+
+    preencherPlacas();
+  }catch(erro){
+    const tela=document.getElementById('telaInicial');
+    if(tela){
+      tela.innerHTML='<div class="inicioCard"><h1>Rotas TGR</h1>'+
+        '<p style="color:#b00000"><b>Não foi possível carregar rotas.csv.</b></p>'+
+        '<p>Confirme se <b>index.html</b> e <b>rotas.csv</b> estão na mesma pasta publicada.</p>'+
+        '<p style="font-size:12px;color:#666">'+esc(erro.message)+'</p></div>';
+    }
+  }
+}
+
+function preencherPlacas(){
+  select.innerHTML='<option value="">Selecione a placa...</option>';
+  const placas=[...new Set(dados.map(x=>x.rota))].sort();
+  placas.forEach(p=>{
+    const item=dados.find(x=>x.rota===p);
+    const o=document.createElement('option');
+    o.value=p;
+    o.textContent=p+' — '+((item&&item.motorista)?item.motorista:'Não informado');
+    select.appendChild(o);
+  });
+
+  const selectInicial=document.getElementById('placaInicial');
+  const botao=document.getElementById('entrarRota');
+  if(selectInicial && botao){
+    selectInicial.innerHTML='<option value="">Selecione a placa...</option>';
+    placas.forEach(p=>{
+      const item=dados.find(x=>x.rota===p);
+      const o=document.createElement('option');
+      o.value=p;
+      o.textContent=p+' — '+((item&&item.motorista)?item.motorista:'Não informado');
+      selectInicial.appendChild(o);
+    });
+    selectInicial.onchange=function(){botao.disabled=!this.value;};
+  }
+}
+
+const map=L.map('map').setView([-11.30,-41.85],9);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+  maxZoom:19,attribution:'&copy; OpenStreetMap'
+}).addTo(map);
+let layer=L.layerGroup().addTo(map);
+let marcadoresPorPedido=new Map();
+
+const select=document.getElementById('placa');
+
+function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
+function pesoNum(v){return Number(String(v??'0').replace(',','.'))||0;}
+function chaveStatus(p){return 'statusPedidoTGR|'+p.rota+'|'+p.pedido+'|'+p.cliente;}
+function getStatus(p){return localStorage.getItem(chaveStatus(p)) || 'pendente';}
+function chaveMarcador(p){return p.rota+'|'+p.pedido+'|'+p.cliente;}
+function focarPedido(p){
+  const marcador=marcadoresPorPedido.get(chaveMarcador(p));
+  if(marcador){
+    map.setView(marcador.getLatLng(),17,{animate:true});
+    marcador.openPopup();
+  }else{
+    map.setView([p.lat,p.lon],17,{animate:true});
+  }
+}
+function alternarStatus(p){
+  const novo=getStatus(p)==='atendido'?'pendente':'atendido';
+  localStorage.setItem(chaveStatus(p),novo);
+  renderPedidos(select.value);
+  renderMapa(select.value);
+}
+
+function renderPedidos(placa){
+  const box=document.getElementById('pedidos');
+  if(!placa){box.style.display='none';box.innerHTML='';return;}
+  const itens=dados.filter(x=>x.rota===placa);
+  box.innerHTML='<div class="pedidosTitulo">Pedidos da rota</div>'+itens.map((p,i)=>{
+    const st=getStatus(p);
+    return '<div class="pedidoItem" data-i="'+i+'" title="Clique para localizar no mapa">'+
+      '<div class="pedidoTopo"><span class="pedidoNum">'+(i+1)+'. Pedido '+esc(p.pedido)+'</span><span class="pedidoPeso">'+pesoNum(p.peso).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+' kg</span></div>'+
+      '<div>Cliente: '+esc(p.cliente)+' • '+esc(p.cidade)+'</div>'+
+      '<div class="statusBtns">'+
+      '<button class="statusBtn '+(st==='atendido'?'atendido':'pendente')+'" data-i="'+i+'">'+(st==='atendido'?'Atendido':'Pendente')+'</button>'+
+      '</div></div>';
+  }).join('');
+  box.style.display='block';
+  box.querySelectorAll('.pedidoItem').forEach(item=>{
+    item.onclick=()=>focarPedido(itens[Number(item.dataset.i)]);
+  });
+  box.querySelectorAll('.statusBtn').forEach(btn=>btn.onclick=(ev)=>{
+    ev.stopPropagation();
+    alternarStatus(itens[Number(btn.dataset.i)]);
+  });
+}
+
+function renderMapa(placa){
+  layer.clearLayers();
+  marcadoresPorPedido.clear();
+  if(!placa)return;
+  const itens=dados.filter(x=>x.rota===placa);
+  const bounds=[];
+  const usadosPorCoordenada=new Map();
+
+  itens.forEach((p,i)=>{
+    const st=getStatus(p);
+    const cor=st==='atendido'?'#148a2a':'#c00000';
+    const icon=L.divIcon({className:'',html:'<div class="num" style="background:'+cor+'">'+esc(p.pedido)+'</div>',iconSize:[52,34],iconAnchor:[26,17]});
+    const gps=p.gps || ('https://www.google.com/maps?q='+p.lat+','+p.lon);
+
+    // Se mais de um pedido tiver exatamente a mesma localização,
+    // afasta apenas o marcador visual para todos aparecerem.
+    const chaveCoord=p.lat.toFixed(6)+'|'+p.lon.toFixed(6);
+    const repeticao=usadosPorCoordenada.get(chaveCoord)||0;
+    usadosPorCoordenada.set(chaveCoord,repeticao+1);
+
+    let latVisual=p.lat;
+    let lonVisual=p.lon;
+    if(repeticao>0){
+      const angulo=(repeticao-1)*(Math.PI*2/8);
+      const raio=0.00018*(1+Math.floor((repeticao-1)/8));
+      latVisual=p.lat + Math.cos(angulo)*raio;
+      lonVisual=p.lon + Math.sin(angulo)*raio;
+    }
+
+    const popup='<div class="popup">'+
+      '<b>Cliente:</b> '+esc(p.cliente)+'<br>'+
+      '<b>Pedido:</b> '+esc(p.pedido)+'<br>'+
+      '<b>Cidade:</b> '+esc(p.cidade)+'<br>'+
+      '<b>Peso:</b> '+esc(p.peso)+' kg<br>'+
+      '<b>Status:</b> '+(st==='atendido'?'Atendido':'Pendente')+'<br>'+
+      '<a class="gps" target="_blank" rel="noopener" href="'+esc(gps)+'">ABRIR NO GPS</a></div>';
+
+    const marcador=L.marker([latVisual,lonVisual],{icon}).bindPopup(popup).addTo(layer);
+    marcadoresPorPedido.set(chaveMarcador(p),marcador);
+    bounds.push([latVisual,lonVisual]);
+  });
+  if(bounds.length) map.fitBounds(bounds,{padding:[45,45]});
+}
+
+select.addEventListener('change',()=>{
+  const placa=select.value;
+  const info=document.getElementById('info');
+  if(!placa){info.style.display='none';renderPedidos('');renderMapa('');return;}
+  const itens=dados.filter(x=>x.rota===placa);
+  if(!itens.length)return;
+  const motorista=itens[0].motorista||'Não informado';
+  const peso=itens.reduce((s,x)=>s+pesoNum(x.peso),0);
+  const cidades=[...new Set(itens.map(x=>String(x.cidade||'').trim()).filter(Boolean))];
+  info.innerHTML='<b>Motorista:</b> '+esc(motorista)+'<br><b>Entregas:</b> '+itens.length+
+    '<br><b>Peso total:</b> '+peso.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+' kg'+
+    '<br><b>Cidade'+(cidades.length>1?'s':'')+':</b> '+(cidades.length?cidades.map(esc).join(', '):'Não informada');
+  info.style.display='block';
+
+  renderPedidos(placa);
+  renderMapa(placa);
+});
+</script>
+
+<script>
+(function(){
+  function prepararTelaInicial(){
+    const selectAtual=document.getElementById('placa');
+    const selectInicial=document.getElementById('placaInicial');
+    const botao=document.getElementById('entrarRota');
+    const tela=document.getElementById('telaInicial');
+    if(!selectAtual || !selectInicial || !botao || !tela) return;
+
+botao.addEventListener('click',function(){
+      if(!selectInicial.value) return;
+      selectAtual.value=selectInicial.value;
+      selectAtual.dispatchEvent(new Event('change',{bubbles:true}));
+      tela.style.display='none';
+      setTimeout(function(){ if(window.map) map.invalidateSize(); },100);
+    });
+
+    const voltar=document.getElementById('trocarRota');
+    if(voltar){
+      voltar.addEventListener('click',function(){
+        selectInicial.value='';
+        botao.disabled=true;
+        tela.style.display='flex';
+      });
+    }
+  }
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',function(){
+      prepararTelaInicial();
+      carregarRotas();
+    });
+  }else{
+    prepararTelaInicial();
+    carregarRotas();
+  }
+})();
+</script>
+
+</body>
+</html>
