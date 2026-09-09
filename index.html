@@ -14,7 +14,13 @@ h2{font-size:18px;margin:0 0 4px;color:#c00000}
 select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radius:8px;background:#fff}
 .info{display:none;margin-top:9px;padding-top:8px;border-top:1px solid #ddd;font-size:13px;line-height:1.45}
 .pedidos{display:none;margin-top:10px;max-height:42vh;overflow:auto;border-top:1px solid #ddd;padding-top:8px}
-.pedidosTitulo{font-size:14px;font-weight:bold;margin-bottom:7px}
+.pedidosTitulo{font-size:14px;font-weight:bold}
+.pedidosCabecalho{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:7px}
+.togglePedidos{border:1px solid #bbb;background:#fff;border-radius:6px;padding:5px 9px;font-size:11px;font-weight:bold;cursor:pointer;color:#333}
+.togglePedidos:hover{background:#f1f1f1}
+.pedidos.minimizada{max-height:none;overflow:hidden}
+.pedidos.minimizada .pedidosConteudo{display:none}
+.pedidos.minimizada .pedidosCabecalho{margin-bottom:0}
 .pedidoItem{cursor:pointer;background:#fafafa;border:1px solid #ddd;border-radius:8px;padding:8px;margin-bottom:7px;font-size:12px;line-height:1.45}
 .pedidoTopo{display:flex;justify-content:space-between;gap:8px;align-items:center}
 .pedidoNum{font-weight:bold;color:#c00000;font-size:13px}
@@ -185,6 +191,7 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
 }).addTo(map);
 let layer=L.layerGroup().addTo(map);
 let marcadoresPorPedido=new Map();
+let pedidosMinimizados=false;
 
 const select=document.getElementById('placa');
 
@@ -209,11 +216,31 @@ function alternarStatus(p){
   renderMapa(select.value);
 }
 
+function atualizarEstadoListaPedidos(){
+  const box=document.getElementById('pedidos');
+  if(!box) return;
+  box.classList.toggle('minimizada',pedidosMinimizados);
+  const botao=box.querySelector('.togglePedidos');
+  if(botao){
+    botao.textContent=pedidosMinimizados?'MOSTRAR':'MINIMIZAR';
+    botao.setAttribute('aria-expanded',String(!pedidosMinimizados));
+  }
+}
+
+function alternarListaPedidos(){
+  pedidosMinimizados=!pedidosMinimizados;
+  atualizarEstadoListaPedidos();
+}
+
 function renderPedidos(placa){
   const box=document.getElementById('pedidos');
   if(!placa){box.style.display='none';box.innerHTML='';return;}
   const itens=dados.filter(x=>x.rota===placa);
-  box.innerHTML='<div class="pedidosTitulo">Pedidos da rota</div>'+itens.map((p,i)=>{
+  box.innerHTML='<div class="pedidosCabecalho">'+
+    '<div class="pedidosTitulo">Pedidos da rota</div>'+
+    '<button type="button" class="togglePedidos" aria-expanded="'+String(!pedidosMinimizados)+'">'+(pedidosMinimizados?'MOSTRAR':'MINIMIZAR')+'</button>'+
+    '</div>'+
+    '<div class="pedidosConteudo">'+itens.map((p,i)=>{
     const st=getStatus(p);
     return '<div class="pedidoItem" data-i="'+i+'" title="Clique para localizar no mapa">'+
       '<div class="pedidoTopo"><span class="pedidoNum">'+(i+1)+'. Pedido '+esc(p.pedido)+'</span><span class="pedidoPeso">'+pesoNum(p.peso).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+' kg</span></div>'+
@@ -221,8 +248,11 @@ function renderPedidos(placa){
       '<div class="statusBtns">'+
       '<button class="statusBtn '+(st==='atendido'?'atendido':'pendente')+'" data-i="'+i+'">'+(st==='atendido'?'Atendido':'Pendente')+'</button>'+
       '</div></div>';
-  }).join('');
+  }).join('')+'</div>';
   box.style.display='block';
+  atualizarEstadoListaPedidos();
+  const toggle=box.querySelector('.togglePedidos');
+  if(toggle) toggle.onclick=(ev)=>{ev.stopPropagation();alternarListaPedidos();};
   box.querySelectorAll('.pedidoItem').forEach(item=>{
     item.onclick=()=>focarPedido(itens[Number(item.dataset.i)]);
   });
