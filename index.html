@@ -47,14 +47,28 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
 .pedidoTopo{display:flex;justify-content:space-between;gap:8px;align-items:center}
 .pedidoNum{font-weight:bold;color:#c00000;font-size:13px}
 .pedidoPeso{font-weight:bold}
-.statusBtns{display:flex;margin-top:7px}
-.statusBtn{width:100%;border:0;border-radius:6px;padding:9px;font-weight:bold;cursor:pointer;background:#777;color:#fff}
+.statusBtns{display:flex;gap:8px;margin-top:7px}
+.statusBtn,.pagamentoBtn{width:50%;border:0;border-radius:6px;padding:9px;font-weight:bold;cursor:pointer;color:#fff}
+.statusBtn{background:#777}
+.pagamentoBtn{background:#555}
 .statusBtn.atendido{background:#148a2a}
 .statusBtn.pendente{background:#777}
 .num{background:#c00000;color:#fff;border:2px solid #fff;border-radius:16px;min-width:34px;height:30px;padding:0 5px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;font-weight:bold;box-shadow:0 1px 5px #0008}
 .popup{font-size:13px;line-height:1.45;min-width:180px}
 .gps{display:block;text-align:center;text-decoration:none;background:#148a2a;color:white!important;font-weight:bold;padding:9px;margin-top:8px;border-radius:7px}
 @media(max-width:600px){.topo{left:8px;right:auto;top:8px;width:calc(100vw - 16px);max-width:none}}
+.pixTela{position:fixed;inset:0;z-index:12000;background:#f4f4f4;display:none;align-items:center;justify-content:center;padding:18px;box-sizing:border-box}
+.pixCard{width:min(430px,100%);background:#fff;border-radius:16px;padding:22px;box-shadow:0 8px 30px #0003;text-align:center}
+.pixTopo{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px}
+.pixTopo h2{margin:0;font-size:18px;color:#222}
+.pixFechar{border:1px solid #bbb;background:#fff;border-radius:7px;padding:8px 11px;font-weight:bold;cursor:pointer}
+.pixValorLabel{font-size:13px;color:#666;margin-bottom:4px}
+.pixValor{font-size:28px;font-weight:bold;color:#148a2a;margin-bottom:18px}
+#pixQr{display:flex;align-items:center;justify-content:center;min-height:230px;margin:0 auto 14px}
+#pixQr img,#pixQr canvas{max-width:230px!important;width:230px!important;height:230px!important}
+.pixInstrucao{font-size:13px;line-height:1.45;color:#555;margin:0 auto;max-width:310px}
+.pixAviso{font-size:14px;color:#b00000;line-height:1.45;padding:30px 10px}
+
 
   #telaInicial{
     position:fixed; inset:0; z-index:9999; background:#f4f4f4;
@@ -94,9 +108,21 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
 <button id="trocarRota" type="button">VOLTAR</button>
   <div id="pedidos" class="pedidos"></div>
 </div>
+
+<div id="pixTela" class="pixTela" aria-hidden="true">
+  <div class="pixCard">
+    <div class="pixTopo">
+      <h2>Forma de Pagamento</h2>
+      <button id="pixFechar" class="pixFechar" type="button">FECHAR</button>
+    </div>
+    <div id="pixConteudo"></div>
+  </div>
+</div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
 let dados=[];
+let dadosPix=new Map();
 
 function parseCSV(texto){
   const linhas=[];
@@ -122,6 +148,44 @@ function parseCSV(texto){
     if(linha.some(v=>v!=='')) linhas.push(linha);
   }
   return linhas;
+}
+
+function normalizarCodigoCliente(v){
+  return String(v??'').trim().toUpperCase();
+}
+
+async function carregarPix(){
+  try{
+    const resposta=await fetch('pix.csv?v='+Date.now(),{cache:'no-store'});
+    if(!resposta.ok) throw new Error('HTTP '+resposta.status);
+    let texto=(await resposta.text()).replace(/^\uFEFF/,'');
+    const linhas=parseCSV(texto);
+    if(linhas.length<2) return;
+    const cab=linhas[0].map(x=>x.trim());
+    const idx=nome=>cab.indexOf(nome);
+    const pos={
+      cliente:idx('CODIGO CLIENTE'),
+      nf:idx('NF'),
+      valor:idx('VALOR PIX'),
+      payload:idx('PIX COPIA E COLA')
+    };
+    if(Object.values(pos).some(v=>v<0)) return;
+    dadosPix.clear();
+    linhas.slice(1).forEach(cols=>{
+      const cliente=normalizarCodigoCliente(cols[pos.cliente]);
+      const payload=String(cols[pos.payload]??'').trim();
+      if(!cliente || !payload) return;
+      if(!dadosPix.has(cliente)){
+        dadosPix.set(cliente,{
+          nf:String(cols[pos.nf]??'').trim(),
+          valor:String(cols[pos.valor]??'').trim(),
+          payload
+        });
+      }
+    });
+  }catch(erro){
+    console.warn('pix.csv não carregado:',erro);
+  }
 }
 
 async function carregarRotas(){
@@ -245,6 +309,37 @@ function alternarStatus(p){
   renderMapa(select.value);
 }
 
+function abrirPagamento(p){
+  const tela=document.getElementById('pixTela');
+  const conteudo=document.getElementById('pixConteudo');
+  const info=dadosPix.get(normalizarCodigoCliente(p.cliente));
+  if(!tela || !conteudo) return;
+  if(!info){
+    conteudo.innerHTML='<div class="pixAviso"><b>PIX não localizado para este cliente.</b><br><br>Código do cliente: '+esc(p.cliente)+'</div>';
+  }else{
+    const valor=Number(String(info.valor||'0').replace(',','.'))||0;
+    conteudo.innerHTML='<div class="pixValorLabel">Valor do PIX</div>'+
+      '<div class="pixValor">R$ '+valor.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'</div>'+
+      '<div id="pixQr"></div>'+
+      '<p class="pixInstrucao">Utilize um aplicativo compatível para fazer a leitura do QR code</p>';
+    const qr=document.getElementById('pixQr');
+    if(qr && window.QRCode){
+      new QRCode(qr,{text:info.payload,width:230,height:230,correctLevel:QRCode.CorrectLevel.M});
+    }else if(qr){
+      qr.innerHTML='<div class="pixAviso">Não foi possível gerar o QR Code.</div>';
+    }
+  }
+  tela.style.display='flex';
+  tela.setAttribute('aria-hidden','false');
+}
+
+function fecharPagamento(){
+  const tela=document.getElementById('pixTela');
+  if(!tela) return;
+  tela.style.display='none';
+  tela.setAttribute('aria-hidden','true');
+}
+
 function atualizarEstadoListaPedidos(){
   const box=document.getElementById('pedidos');
   if(!box) return;
@@ -276,6 +371,7 @@ function renderPedidos(placa){
       '<div>Cliente: '+esc(p.cliente)+' • '+esc(p.cidade)+'</div>'+
       '<div class="statusBtns">'+
       '<button class="statusBtn '+(st==='atendido'?'atendido':'pendente')+'" data-i="'+i+'">'+(st==='atendido'?'Atendido':'Pendente')+'</button>'+
+      '<button class="pagamentoBtn" data-i="'+i+'">Forma de Pagamento</button>'+
       '</div></div>';
   }).join('')+'</div>';
   box.style.display='block';
@@ -288,6 +384,10 @@ function renderPedidos(placa){
   box.querySelectorAll('.statusBtn').forEach(btn=>btn.onclick=(ev)=>{
     ev.stopPropagation();
     alternarStatus(itens[Number(btn.dataset.i)]);
+  });
+  box.querySelectorAll('.pagamentoBtn').forEach(btn=>btn.onclick=(ev)=>{
+    ev.stopPropagation();
+    abrirPagamento(itens[Number(btn.dataset.i)]);
   });
 }
 
@@ -380,14 +480,20 @@ botao.addEventListener('click',function(){
         tela.style.display='flex';
       });
     }
+    const pixFechar=document.getElementById('pixFechar');
+    const pixTela=document.getElementById('pixTela');
+    if(pixFechar) pixFechar.addEventListener('click',fecharPagamento);
+    if(pixTela) pixTela.addEventListener('click',function(ev){ if(ev.target===pixTela) fecharPagamento(); });
   }
   if(document.readyState==='loading'){
     document.addEventListener('DOMContentLoaded',function(){
       prepararTelaInicial();
+      carregarPix();
       carregarRotas();
     });
   }else{
     prepararTelaInicial();
+    carregarPix();
     carregarRotas();
   }
 })();
