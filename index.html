@@ -213,9 +213,16 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
 }).addTo(map);
 let layer=L.layerGroup().addTo(map);
 let marcadoresPorPedido=new Map();
-let pedidosMinimizados=false;
+let pedidosMinimizados=true;
 
 const select=document.getElementById('placa');
+
+map.on('click',()=>{
+  if(select.value && !pedidosMinimizados){
+    pedidosMinimizados=true;
+    atualizarEstadoListaPedidos();
+  }
+});
 
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
 function pesoNum(v){return Number(String(v??'0').replace(',','.'))||0;}
@@ -265,7 +272,7 @@ function renderPedidos(placa){
     '<div class="pedidosConteudo">'+itens.map((p,i)=>{
     const st=getStatus(p);
     return '<div class="pedidoItem" data-i="'+i+'" title="Clique para localizar no mapa">'+
-      '<div class="pedidoTopo"><span class="pedidoNum">'+(i+1)+'. Pedido '+esc(p.pedido)+'</span><span class="pedidoPeso">'+pesoNum(p.peso).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+' kg</span></div>'+
+      '<div class="pedidoTopo"><span class="pedidoNum">Pedido '+esc(p.pedido)+'</span><span class="pedidoPeso">'+pesoNum(p.peso).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+' kg</span></div>'+
       '<div>Cliente: '+esc(p.cliente)+' • '+esc(p.cidade)+'</div>'+
       '<div class="statusBtns">'+
       '<button class="statusBtn '+(st==='atendido'?'atendido':'pendente')+'" data-i="'+i+'">'+(st==='atendido'?'Atendido':'Pendente')+'</button>'+
@@ -358,6 +365,7 @@ select.addEventListener('change',()=>{
 
 botao.addEventListener('click',function(){
       if(!selectInicial.value) return;
+      pedidosMinimizados=true;
       selectAtual.value=selectInicial.value;
       selectAtual.dispatchEvent(new Event('change',{bubbles:true}));
       tela.style.display='none';
