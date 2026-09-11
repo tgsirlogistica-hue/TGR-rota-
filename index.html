@@ -411,7 +411,7 @@ function renderPedidos(placa){
     '<div class="pedidosConteudo">'+itens.map((p,i)=>{
     const st=getStatus(p);
     return '<div class="pedidoItem" data-i="'+i+'" title="Clique para localizar no mapa">'+
-      '<div class="pedidoTopo"><span class="pedidoNum">Pedido '+esc(p.pedido)+'</span><span class="pedidoPeso">'+pesoNum(p.peso).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+' kg</span></div>'+
+      '<div class="pedidoTopo"><span class="pedidoNum">Pedido '+esc(p.pedido)+' — '+esc(nomeFantasiaCliente(p.cliente))+'</span><span class="pedidoPeso">'+pesoNum(p.peso).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+' kg</span></div>'+
       '<div>Cliente: '+esc(p.cliente)+' • '+esc(p.cidade)+'</div>'+
       '<div class="statusBtns">'+
       '<button class="statusBtn '+(st==='atendido'?'atendido':'pendente')+'" data-i="'+i+'">'+(st==='atendido'?'Atendido':'Pendente')+'</button>'+
