@@ -92,12 +92,14 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
 
 
   .atualizarSistemaTeste{
-    width:100%;margin-top:12px;padding:12px;border:0;border-radius:8px;
-    background:#c00000;color:#fff;font-weight:700;font-size:13px;cursor:pointer;
-    transition:background .2s ease,opacity .2s ease
+    width:100%;margin-top:10px;padding:11px;border:0;border-radius:8px;
+    background:#555;color:#fff;font-weight:700;font-size:13px;cursor:pointer;
+    transition:background .2s ease,transform .12s ease,opacity .2s ease
   }
+  .atualizarSistemaTeste:active{transform:scale(.995)}
   .atualizarSistemaTeste.pronto{background:#148a2a}
-  .atualizarSistemaTeste:disabled{opacity:.88;cursor:default}
+  .atualizarSistemaTeste.baixando{background:#9a6a00}
+  .atualizarSistemaTeste.falha{background:#b00000}
   .mapaStatusTeste{
     margin-top:8px;font-size:11px;line-height:1.35;color:#666
   }
@@ -106,8 +108,8 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
 
 .downloadInfoTGR{
   margin-top:10px;
-  padding:12px;
-  border:1px solid #e2e2e2;
+  padding:11px 12px;
+  border:1px solid #ddd;
   border-radius:10px;
   background:#fafafa;
   text-align:left
@@ -143,7 +145,8 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
 .downloadUltimaAtualizacao{
   margin-top:6px;
   font-size:11px;
-  color:#777
+  color:#777;
+  line-height:1.35
 }
 
 
@@ -726,32 +729,35 @@ document.addEventListener('DOMContentLoaded',function(){
     if(!valor) return '';
     const d=new Date(valor);
     if(Number.isNaN(d.getTime())) return '';
-    return d.toLocaleDateString('pt-BR')+' às '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+    return d.toLocaleDateString('pt-BR')+' às '+d.toLocaleTimeString('pt-BR',{
+      hour:'2-digit',minute:'2-digit'
+    });
   }
 
-  function mostrarEstadoSalvo(){
+  function restaurarUltimaAtualizacao(){
     const salvo=localStorage.getItem(CHAVE);
-    if(salvo){
-      const f=fmtDataHora(salvo);
-      if(ultima) ultima.textContent='Última atualização: '+f;
-      if(texto){
-        texto.classList.remove('erro');
-        texto.classList.add('ok');
-        texto.textContent='Sistema preparado. Atualize novamente quando houver nova rota.';
-      }
-      if(b){
-        b.classList.add('pronto');
-        b.textContent='ATUALIZADO ✓';
-      }
+    if(!salvo) return;
+    const f=fmtDataHora(salvo);
+    if(ultima && f) ultima.textContent='Última atualização: '+f;
+    if(b){
+      b.classList.remove('baixando','falha');
+      b.classList.add('pronto');
+      b.textContent='ATUALIZADO ✓';
+    }
+    if(texto){
+      texto.classList.remove('erro');
+      texto.classList.add('ok');
+      texto.textContent='Sistema atualizado. Atualize novamente quando houver nova rota.';
     }
   }
 
-  mostrarEstadoSalvo();
+  restaurarUltimaAtualizacao();
 
   if(b){
     b.addEventListener('click',async function(){
       b.disabled=true;
-      b.classList.remove('pronto');
+      b.classList.remove('pronto','falha');
+      b.classList.add('baixando');
       b.textContent='BAIXANDO ATUALIZAÇÃO...';
 
       if(box) box.style.display='block';
@@ -779,9 +785,9 @@ document.addEventListener('DOMContentLoaded',function(){
             if(total>0){
               const pct=Math.min(100,Math.round((recebido/total)*100));
               if(barra) barra.style.width=pct+'%';
-              if(texto) texto.textContent='Baixando atualização... '+pct+'% • '+fmtBytes(recebido)+' de '+fmtBytes(total);
+              if(texto) texto.textContent='Baixando mapa... '+pct+'% ('+fmtBytes(recebido)+' / '+fmtBytes(total)+')';
             }else{
-              if(texto) texto.textContent='Baixando atualização... '+fmtBytes(recebido);
+              if(texto) texto.textContent='Baixando mapa... '+fmtBytes(recebido);
             }
           }
         }else{
@@ -793,26 +799,25 @@ document.addEventListener('DOMContentLoaded',function(){
         const agora=new Date().toISOString();
         localStorage.setItem(CHAVE,agora);
 
+        if(ultima) ultima.textContent='Última atualização: '+fmtDataHora(agora);
         if(texto){
           texto.classList.remove('erro');
           texto.classList.add('ok');
           texto.textContent='Atualização concluída com sucesso.';
         }
-        if(ultima) ultima.textContent='Última atualização: '+fmtDataHora(agora);
 
+        b.classList.remove('baixando','falha');
         b.classList.add('pronto');
         b.textContent='ATUALIZADO ✓';
-
-        setTimeout(function(){
-          b.disabled=false;
-          b.textContent='ATUALIZAR NOVAMENTE';
-        },1800);
+        b.disabled=false;
 
       }catch(err){
-        console.error('Falha no download da atualização:',err);
+        console.error('Falha ao baixar a atualização:',err);
         b.disabled=false;
-        b.classList.remove('pronto');
+        b.classList.remove('pronto','baixando');
+        b.classList.add('falha');
         b.textContent='TENTAR ATUALIZAR NOVAMENTE';
+
         if(texto){
           texto.classList.remove('ok');
           texto.classList.add('erro');
