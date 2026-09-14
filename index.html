@@ -6,7 +6,9 @@
 <meta name="theme-color" content="#c00000">
 <link rel="manifest" href="manifest.json">
 <title>Rotas TGR - Motoristas</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<!-- versão offline PMTiles 100 km -->
+<link rel="stylesheet" href="./leaflet.css">
+<link rel="stylesheet" href="./maplibre-gl.css">
 <style>
 html,body{height:100%;margin:0;font-family:Arial,sans-serif;background:#f4f4f4}
 #map{height:100%}
@@ -164,7 +166,10 @@ box-shadow:0 2px 8px #0004;display:none}
     <div id="pixConteudo"></div>
   </div>
 </div>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="./leaflet.js"></script>
+<script src="./maplibre-gl.js"></script>
+<script src="./pmtiles.js"></script>
+<script src="./leaflet-maplibre-gl.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
@@ -360,9 +365,68 @@ function preencherPlacas(){
   }
 }
 
-const map=L.map('map').setView([-11.30,-41.85],9);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
-  maxZoom:19,attribution:'&copy; OpenStreetMap'
+const map=L.map('map',{
+  minZoom:7,
+  maxZoom:15
+}).setView([-11.295674247278528,-41.85261931399753],9);
+
+/*
+  MAPA OFFLINE TGR
+  O arquivo mapa_tgr_100km.pmtiles fica na mesma pasta deste index.html.
+  A camada abaixo não consulta o servidor público de tiles do OpenStreetMap.
+*/
+const protocoloPmtiles=new pmtiles.Protocol({metadata:true});
+maplibregl.addProtocol('pmtiles',protocoloPmtiles.tile);
+
+const urlPmtiles=new URL('./mapa_tgr_100km.pmtiles',window.location.href).href;
+
+const estiloOffline={
+  version:8,
+  sources:{
+    tgr:{
+      type:'vector',
+      url:'pmtiles://'+urlPmtiles,
+      attribution:'© OpenStreetMap contributors • Protomaps'
+    }
+  },
+  layers:[
+    {id:'fundo',type:'background',paint:{'background-color':'#f3f1ec'}},
+    {id:'terra',type:'fill',source:'tgr','source-layer':'earth',
+      paint:{'fill-color':'#f3f1ec'}},
+    {id:'uso-solo',type:'fill',source:'tgr','source-layer':'landuse',
+      paint:{'fill-color':'#e8eadf','fill-opacity':0.7}},
+    {id:'cobertura',type:'fill',source:'tgr','source-layer':'landcover',
+      paint:{'fill-color':'#e1ead8','fill-opacity':0.55}},
+    {id:'agua',type:'fill',source:'tgr','source-layer':'water',
+      paint:{'fill-color':'#b8d8e8'}},
+    {id:'predios',type:'fill',source:'tgr','source-layer':'buildings',
+      minzoom:13,paint:{'fill-color':'#d5d0c8','fill-outline-color':'#c7c0b7'}},
+    {id:'vias-secundarias',type:'line',source:'tgr','source-layer':'roads',
+      filter:['!', ['in',['get','kind'],['literal',['highway','major_road']]]],
+      paint:{
+        'line-color':'#ffffff',
+        'line-width':['interpolate',['linear'],['zoom'],7,0.35,11,0.8,15,2.2]
+      }},
+    {id:'vias-principais-borda',type:'line',source:'tgr','source-layer':'roads',
+      filter:['in',['get','kind'],['literal',['highway','major_road']]],
+      paint:{
+        'line-color':'#d2b488',
+        'line-width':['interpolate',['linear'],['zoom'],7,1.0,11,2.2,15,5.2]
+      }},
+    {id:'vias-principais',type:'line',source:'tgr','source-layer':'roads',
+      filter:['in',['get','kind'],['literal',['highway','major_road']]],
+      paint:{
+        'line-color':'#fff7e8',
+        'line-width':['interpolate',['linear'],['zoom'],7,0.55,11,1.4,15,3.6]
+      }},
+    {id:'limites',type:'line',source:'tgr','source-layer':'boundaries',
+      paint:{'line-color':'#9b9b9b','line-width':0.8,'line-dasharray':[3,2]}}
+  ]
+};
+
+L.maplibreGL({
+  style:estiloOffline,
+  attributionControl:false
 }).addTo(map);
 let layer=L.layerGroup().addTo(map);
 let marcadoresPorPedido=new Map();
