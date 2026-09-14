@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<meta name="theme-color" content="#c00000">
+<link rel="manifest" href="manifest.json">
 <title>Rotas TGR - Motoristas</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -90,6 +92,20 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
   .inicioCard button:disabled{opacity:.45;cursor:not-allowed}
   #trocarRota{position:fixed;top:12px;right:12px;z-index:1100;margin:0;padding:6px 9px;border:1px solid #bbb;border-radius:7px;background:rgba(255,255,255,.92);color:#555;font-size:10px;font-weight:bold;cursor:pointer;box-shadow:0 1px 5px #0002}
 
+
+.offlineBar{position:fixed;left:50%;bottom:10px;transform:translateX(-50%);z-index:13000;
+background:#222;color:#fff;padding:8px 12px;border-radius:999px;font-size:11px;font-weight:bold;
+box-shadow:0 2px 8px #0004;display:none}
+.offlineBar.on{display:block}
+
+
+.atualizarRotaBox{display:none;margin-top:8px;padding-top:8px;border-top:1px solid #ddd}
+.atualizarRotaBtn{width:100%;border:0;border-radius:7px;padding:10px;background:#c00000;color:#fff;font-weight:bold;cursor:pointer}
+.atualizarRotaBtn:disabled{opacity:.6;cursor:default}
+.atualizacaoInfo{font-size:11px;color:#666;margin-top:7px;text-align:center;line-height:1.35}
+.atualizacaoOk{color:#148a2a;font-weight:bold}
+.atualizacaoErro{color:#b00000;font-weight:bold}
+
 </style>
 </head>
 <body>
@@ -110,6 +126,10 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
   <h2>Rotas TGR</h2>
   <div style="display:none"><select id="placa"><option value="">Selecione a placa...</option></select></div>
   <div id="info" class="info"></div>
+<div id="atualizarRotaBox" class="atualizarRotaBox">
+  <button id="atualizarRotaBtn" class="atualizarRotaBtn" type="button">Atualizar rota do dia</button>
+  <div id="atualizacaoInfo" class="atualizacaoInfo">Última atualização: ainda não realizada</div>
+</div>
 <button id="trocarRota" type="button">VOLTAR</button>
   <div id="pedidos" class="pedidos"></div>
 </div>
@@ -585,6 +605,183 @@ botao.addEventListener('click',function(){
   }else{
     prepararTelaInicial();
     Promise.all([carregarPix(),carregarBaseClientes()]).then(carregarRotas);
+  }
+})();
+</script>
+
+<div id="offlineBar" class="offlineBar">Modo offline</div>
+
+<script>
+(function(){
+  const DB_NAME='tgr_offline_db';
+  const STORE='arquivos';
+  const META='meta';
+
+  function abrirDb(){
+    return new Promise((resolve,reject)=>{
+      const req=indexedDB.open(DB_NAME,2);
+      req.onupgradeneeded=()=> {
+        const db=req.result;
+        if(!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
+        if(!db.objectStoreNames.contains(META)) db.createObjectStore(META);
+      };
+      req.onsuccess=()=>resolve(req.result);
+      req.onerror=()=>reject(req.error);
+    });
+  }
+
+  async function salvarDb(store,chave,valor){
+    const db=await abrirDb();
+    return new Promise((resolve,reject)=>{
+      const tx=db.transaction(store,'readwrite');
+      tx.objectStore(store).put(valor,chave);
+      tx.oncomplete=()=>resolve(true);
+      tx.onerror=()=>reject(tx.error);
+    });
+  }
+
+  async function lerDb(store,chave){
+    const db=await abrirDb();
+    return new Promise((resolve,reject)=>{
+      const tx=db.transaction(store,'readonly');
+      const req=tx.objectStore(store).get(chave);
+      req.onsuccess=()=>resolve(req.result ?? null);
+      req.onerror=()=>reject(req.error);
+    });
+  }
+
+  async function salvarRespostaOffline(nome,resp){
+    const clone=resp.clone();
+    if(/\.xlsx$/i.test(nome)){
+      const buf=await clone.arrayBuffer();
+      const bytes=Array.from(new Uint8Array(buf));
+      await salvarDb(STORE,nome,JSON.stringify({tipo:'bin',dados:bytes}));
+    }else{
+      const txt=await clone.text();
+      await salvarDb(STORE,nome,JSON.stringify({tipo:'txt',dados:txt}));
+    }
+  }
+
+  async function respostaOffline(nome){
+    const salvo=await lerDb(STORE,nome);
+    if(!salvo) return null;
+    const obj=JSON.parse(salvo);
+    if(obj.tipo==='bin'){
+      return new Response(new Uint8Array(obj.dados),{
+        status:200,
+        headers:{'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}
+      });
+    }
+    return new Response(obj.dados,{
+      status:200,
+      headers:{'Content-Type':'text/plain; charset=utf-8'}
+    });
+  }
+
+  const fetchOriginal=window.fetch.bind(window);
+  window.fetch=async function(input,init){
+    const url=typeof input==='string' ? input : (input && input.url ? input.url : '');
+    const alvo=/(^|\/)(rotas\.csv|pix\.csv|Base de Clientes\.xlsx)(\?|$)/i.test(url);
+    if(!alvo) return fetchOriginal(input,init);
+
+    const nome=url.split('?')[0].split('/').pop();
+    try{
+      const resp=await fetchOriginal(input,init);
+      if(resp && resp.ok) await salvarRespostaOffline(nome,resp);
+      return resp;
+    }catch(e){
+      const offline=await respostaOffline(nome);
+      if(offline) return offline;
+      throw e;
+    }
+  };
+
+  function formatarDataHora(iso){
+    if(!iso) return 'ainda não realizada';
+    const d=new Date(iso);
+    if(Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleString('pt-BR');
+  }
+
+  async function atualizarTextoUltimaAtualizacao(){
+    const el=document.getElementById('atualizacaoInfo');
+    if(!el) return;
+    const iso=await lerDb(META,'ultimaAtualizacao');
+    el.className='atualizacaoInfo';
+    el.textContent='Última atualização: '+formatarDataHora(iso);
+  }
+
+  async function baixarArquivo(nome){
+    const resp=await fetchOriginal(nome+'?atualizar='+Date.now(),{cache:'no-store'});
+    if(!resp.ok) throw new Error(nome+' HTTP '+resp.status);
+    await salvarRespostaOffline(nome,resp);
+    return true;
+  }
+
+  async function atualizarRotaDoDia(){
+    const btn=document.getElementById('atualizarRotaBtn');
+    const info=document.getElementById('atualizacaoInfo');
+    if(!btn || !info) return;
+
+    if(!navigator.onLine){
+      info.className='atualizacaoInfo atualizacaoErro';
+      info.textContent='Sem internet. Não foi possível atualizar.';
+      return;
+    }
+
+    const textoOriginal=btn.textContent;
+    btn.disabled=true;
+    btn.textContent='Atualizando...';
+    info.className='atualizacaoInfo';
+    info.textContent='Baixando dados mais recentes...';
+
+    try{
+      await baixarArquivo('rotas.csv');
+      await baixarArquivo('pix.csv');
+
+      try{ await baixarArquivo('Base de Clientes.xlsx'); }catch(e){}
+
+      const agora=new Date().toISOString();
+      await salvarDb(META,'ultimaAtualizacao',agora);
+
+      info.className='atualizacaoInfo atualizacaoOk';
+      info.textContent='Rota atualizada com sucesso • '+formatarDataHora(agora);
+
+      // Recarrega a aplicação para que a nova rota apareça imediatamente.
+      setTimeout(()=>location.reload(),900);
+    }catch(e){
+      console.error(e);
+      info.className='atualizacaoInfo atualizacaoErro';
+      info.textContent='Falha na atualização. Verifique a internet e tente novamente.';
+      btn.disabled=false;
+      btn.textContent=textoOriginal;
+    }
+  }
+
+  function atualizarOfflineBar(){
+    const el=document.getElementById('offlineBar');
+    if(!el) return;
+    el.classList.toggle('on',!navigator.onLine);
+  }
+
+  function prepararBotaoAtualizacao(){
+    const box=document.getElementById('atualizarRotaBox');
+    const btn=document.getElementById('atualizarRotaBtn');
+    if(box) box.style.display='block';
+    if(btn) btn.addEventListener('click',atualizarRotaDoDia);
+    atualizarTextoUltimaAtualizacao();
+  }
+
+  window.addEventListener('online',atualizarOfflineBar);
+  window.addEventListener('offline',atualizarOfflineBar);
+
+  document.addEventListener('DOMContentLoaded',()=>{
+    atualizarOfflineBar();
+    prepararBotaoAtualizacao();
+  });
+
+  if('serviceWorker' in navigator){
+    window.addEventListener('load',()=>navigator.serviceWorker.register('./service-worker.js').catch(()=>{}));
   }
 })();
 </script>
