@@ -1,4 +1,4 @@
-const CACHE='tgr-offline-completo-v1';
+const CACHE='tgr-offline-completo-v2-200km';
 
 const LOCAL=[
   './',
@@ -41,8 +41,8 @@ function chaveNormalizada(url){
 
 async function respostaRangePmtiles(request){
   const c=await caches.open(CACHE);
-  const base=new URL('./mapa_tgr_100km.pmtiles',self.location.href).href;
-  let resp=await c.match(base) || await c.match('./mapa_tgr_100km.pmtiles');
+  const base=new URL('./mapa_tgr_200km.pmtiles',self.location.href).href;
+  let resp=await c.match(base) || await c.match('./mapa_tgr_200km.pmtiles');
 
   if(!resp){
     try{
@@ -87,7 +87,7 @@ self.addEventListener('fetch',event=>{
   if(event.request.method!=='GET') return;
   const url=new URL(event.request.url);
 
-  if(url.origin===self.location.origin && url.pathname.endsWith('/mapa_tgr_100km.pmtiles')){
+  if(url.origin===self.location.origin && url.pathname.endsWith('/mapa_tgr_200km.pmtiles')){
     event.respondWith(respostaRangePmtiles(event.request));
     return;
   }

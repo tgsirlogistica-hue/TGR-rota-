@@ -376,13 +376,13 @@ const map=L.map('map',{
 
 /*
   MAPA OFFLINE TGR
-  - arquivo local: mapa_tgr_100km.pmtiles
+  - arquivo local: mapa_tgr_200km.pmtiles
   - dados cartográficos nativos até z15
   - visualização/overzoom permitida até z19
   - rótulos de ruas/cidades renderizados pelo Protomaps Leaflet
 */
 const mapaBaseOffline=protomapsL.leafletLayer({
-  url:'./mapa_tgr_100km.pmtiles',
+  url:'./mapa_tgr_200km.pmtiles',
   flavor:'light',
   lang:'pt',
   maxDataZoom:15,
@@ -663,7 +663,7 @@ botao.addEventListener('click',function(){
     './manifest.json',
     './leaflet.css',
     './leaflet.js',
-    './mapa_tgr_100km.pmtiles',
+    './mapa_tgr_200km.pmtiles',
     './rotas.csv',
     './pix.csv',
     './Base de Clientes.xlsx'
@@ -675,7 +675,7 @@ botao.addEventListener('click',function(){
     'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js'
   ];
 
-  const CACHE_OFFLINE = 'tgr-offline-completo-v1';
+  const CACHE_OFFLINE = 'tgr-offline-completo-v2-200km';
 
   function tamanhoHumano(bytes){
     if(!Number.isFinite(bytes)) return '';
@@ -768,7 +768,7 @@ botao.addEventListener('click',function(){
 
       // O mapa de ~12 MB tem progresso próprio
       status.textContent='Baixando mapa offline... 0%';
-      const respostaMapa=await baixarComProgresso('./mapa_tgr_100km.pmtiles',(recebido,total)=>{
+      const respostaMapa=await baixarComProgresso('./mapa_tgr_200km.pmtiles',(recebido,total)=>{
         if(total>0){
           const pct=Math.min(100,Math.round(recebido/total*100));
           status.textContent='Baixando mapa offline... '+pct+'% ('+tamanhoHumano(recebido)+' / '+tamanhoHumano(total)+')';
@@ -777,7 +777,7 @@ botao.addEventListener('click',function(){
           status.textContent='Baixando mapa offline... '+tamanhoHumano(recebido);
         }
       });
-      await cache.put(new Request('./mapa_tgr_100km.pmtiles'),respostaMapa);
+      await cache.put(new Request('./mapa_tgr_200km.pmtiles'),respostaMapa);
 
       localStorage.setItem('tgrOfflineAtualizadoEm',new Date().toISOString());
 
