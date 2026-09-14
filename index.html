@@ -67,6 +67,8 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
 .pixValor{font-size:28px;font-weight:bold;color:#148a2a;margin-bottom:18px}
 #pixQr{display:flex;align-items:center;justify-content:center;min-height:230px;margin:0 auto 14px}
 #pixQr img,#pixQr canvas{max-width:230px!important;width:230px!important;height:230px!important}
+.pixCopiar{display:block;width:100%;max-width:260px;margin:0 auto 12px;border:0;border-radius:8px;padding:11px 14px;background:#c00000;color:#fff;font-weight:bold;font-size:13px;cursor:pointer}
+.pixCopiar.copiado{background:#148a2a}
 .pixInstrucao{font-size:13px;line-height:1.45;color:#555;margin:0 auto;max-width:310px}
 .pixAviso{font-size:14px;color:#b00000;line-height:1.45;padding:30px 10px}
 
@@ -211,7 +213,8 @@ async function carregarPix(){
       cliente:idx('CODIGO CLIENTE'),
       nf:idx('NF'),
       valor:idx('VALOR PIX'),
-      payload:idx('PIX COPIA E COLA')
+      payload:idx('PIX COPIA E COLA'),
+      enderecoPix:3
     };
     if(Object.values(pos).some(v=>v<0)) return;
     dadosPix.clear();
@@ -223,7 +226,8 @@ async function carregarPix(){
         dadosPix.set(cliente,{
           nf:String(cols[pos.nf]??'').trim(),
           valor:String(cols[pos.valor]??'').trim(),
-          payload
+          payload,
+          enderecoPix:String(cols[pos.enderecoPix]??'').trim()
         });
       }
     });
@@ -365,6 +369,7 @@ function abrirPagamento(p){
     conteudo.innerHTML='<div class="pixValorLabel">Valor do PIX</div>'+
       '<div class="pixValor">R$ '+valor.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'</div>'+
       '<div id="pixQr"></div>'+
+      '<button id="pixCopiar" class="pixCopiar" type="button">Copiar código pix</button>'+
       '<p class="pixInstrucao">Utilize um aplicativo compatível para fazer a leitura do QR code</p>';
     const qr=document.getElementById('pixQr');
     if(qr && window.QRCode){
@@ -372,9 +377,51 @@ function abrirPagamento(p){
     }else if(qr){
       qr.innerHTML='<div class="pixAviso">Não foi possível gerar o QR Code.</div>';
     }
+
+    const botaoCopiar=document.getElementById('pixCopiar');
+    if(botaoCopiar){
+      const codigoParaCopiar=info.enderecoPix || info.payload;
+      botaoCopiar.onclick=async function(){
+        const ok=await copiarCodigoPix(codigoParaCopiar);
+        if(ok){
+          const textoOriginal=this.textContent;
+          this.textContent='Código copiado';
+          this.classList.add('copiado');
+          setTimeout(()=>{
+            this.textContent=textoOriginal;
+            this.classList.remove('copiado');
+          },1600);
+        }
+      };
+    }
   }
   tela.style.display='flex';
   tela.setAttribute('aria-hidden','false');
+}
+
+
+async function copiarCodigoPix(texto){
+  if(!texto) return false;
+  try{
+    if(navigator.clipboard && window.isSecureContext){
+      await navigator.clipboard.writeText(texto);
+      return true;
+    }
+  }catch(e){}
+  try{
+    const area=document.createElement('textarea');
+    area.value=texto;
+    area.setAttribute('readonly','');
+    area.style.position='fixed';
+    area.style.opacity='0';
+    document.body.appendChild(area);
+    area.select();
+    const ok=document.execCommand('copy');
+    document.body.removeChild(area);
+    return ok;
+  }catch(e){
+    return false;
+  }
 }
 
 function fecharPagamento(){
