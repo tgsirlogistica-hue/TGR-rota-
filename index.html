@@ -90,6 +90,17 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
   .inicioCard button:disabled{opacity:.45;cursor:not-allowed}
   #trocarRota{position:fixed;top:12px;right:12px;z-index:1100;margin:0;padding:6px 9px;border:1px solid #bbb;border-radius:7px;background:rgba(255,255,255,.92);color:#555;font-size:10px;font-weight:bold;cursor:pointer;box-shadow:0 1px 5px #0002}
 
+
+  .atualizarSistemaTeste{
+    width:100%;margin-top:10px;padding:11px;border:0;border-radius:8px;
+    background:#555;color:#fff;font-weight:700;font-size:13px;cursor:pointer
+  }
+  .mapaStatusTeste{
+    margin-top:8px;font-size:11px;line-height:1.35;color:#666
+  }
+  .mapaStatusTeste.ok{color:#148a2a;font-weight:bold}
+  .mapaStatusTeste.erro{color:#b00000;font-weight:bold}
+
 </style>
 </head>
 <body>
@@ -102,6 +113,8 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
       <option value="">Selecione a placa...</option>
     </select>
     <button id="entrarRota" disabled>ABRIR ROTA</button>
+<button id="atualizarSistemaTeste" class="atualizarSistemaTeste" type="button">ATUALIZAR SISTEMA</button>
+<div id="mapaStatusTeste" class="mapaStatusTeste">Verificando mapa de 200 km...</div>
   </div>
 </div>
 
@@ -124,7 +137,7 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
   </div>
 </div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/protomaps-leaflet@5.1.0/dist/protomaps-leaflet.js"></script>
+<script src="https://unpkg.com/protomaps-leaflet@5.0.0/dist/protomaps-leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
@@ -320,18 +333,60 @@ function preencherPlacas(){
   }
 }
 
-const map=L.map('map',{
-  maxZoom:19
-}).setView([-11.30,-41.85],9);
+const map=L.map('map',{maxZoom:19}).setView([-11.30,-41.85],9);
 
-const mapaBaseTGR=protomapsL.leafletLayer({
-  url:'./mapa_tgr_200km.pmtiles',
-  flavor:'light',
-  lang:'pt',
-  maxDataZoom:15,
-  attribution:'&copy; OpenStreetMap contributors'
-});
-mapaBaseTGR.addTo(map);
+let mapaBaseTGR=null;
+let mapaUsandoFallback=false;
+
+function statusMapaTeste(texto,tipo){
+  const el=document.getElementById('mapaStatusTeste');
+  if(!el)return;
+  el.textContent=texto;
+  el.classList.remove('ok','erro');
+  if(tipo)el.classList.add(tipo);
+}
+
+function carregarMapaOnlineFallback(motivo){
+  if(mapaBaseTGR)return;
+  mapaUsandoFallback=true;
+  console.warn('PMTiles indisponível; usando mapa online de segurança.', motivo || '');
+  mapaBaseTGR=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    maxZoom:19,
+    attribution:'&copy; OpenStreetMap'
+  }).addTo(map);
+  statusMapaTeste('Mapa online de segurança ativo. PMTiles de 200 km não carregou.','erro');
+}
+
+async function iniciarMapaTGR(){
+  try{
+    if(typeof protomapsL==='undefined' || !protomapsL.leafletLayer){
+      throw new Error('Biblioteca Protomaps Leaflet não carregou.');
+    }
+
+    // Teste explícito do arquivo no mesmo domínio. O cabeçalho Range é essencial ao PMTiles.
+    const teste=await fetch('./mapa_tgr_200km.pmtiles',{
+      headers:{Range:'bytes=0-16383'},
+      cache:'no-store'
+    });
+    if(!(teste.ok || teste.status===206)){
+      throw new Error('Falha ao acessar mapa_tgr_200km.pmtiles. HTTP '+teste.status);
+    }
+
+    mapaBaseTGR=protomapsL.leafletLayer({
+      url:'./mapa_tgr_200km.pmtiles',
+      flavor:'light',
+      lang:'pt',
+      attribution:'&copy; OpenStreetMap contributors'
+    });
+
+    mapaBaseTGR.addTo(map);
+    statusMapaTeste('Mapa TGR 200 km carregado. Zoom disponível até 19.','ok');
+  }catch(err){
+    console.error('Erro ao iniciar mapa PMTiles:',err);
+    carregarMapaOnlineFallback(err && err.message ? err.message : err);
+  }
+}
+iniciarMapaTGR();
 let layer=L.layerGroup().addTo(map);
 let marcadoresPorPedido=new Map();
 let pedidosMinimizados=true;
@@ -600,8 +655,17 @@ botao.addEventListener('click',function(){
 
 
 <script>
-window.addEventListener('error', function(e){
-  console.error('TGR mapa erro:', e.message || e.error);
+document.addEventListener('DOMContentLoaded',function(){
+  const b=document.getElementById('atualizarSistemaTeste');
+  if(b){
+    b.addEventListener('click',function(){
+      b.disabled=true;
+      b.textContent='ATUALIZANDO...';
+      const u=new URL(window.location.href);
+      u.searchParams.set('atualizar',Date.now().toString());
+      window.location.replace(u.toString());
+    });
+  }
 });
 </script>
 

@@ -1,31 +1,21 @@
-TESTE MAPA TGR 200 KM
+TGR - TESTE CORRIGIDO DO MAPA 200 KM
 
-Objetivo desta versão:
-- testar SOMENTE o mapa PMTiles de 200 km;
-- manter o restante do index.html original;
-- sem PWA;
-- sem Service Worker;
-- sem botão de atualização offline;
-- zoom da interface até 19;
-- dados do PMTiles nativos até 15, com overzoom acima disso.
+Esta versão foi refeita a partir do index.html restaurado.
 
-COMO TESTAR NO GITHUB
-1. Faça backup do index.html atual.
-2. Envie estes dois arquivos para a raiz do repositório:
-   - index.html
-   - mapa_tgr_200km.pmtiles
-3. Aguarde o GitHub Pages atualizar.
-4. Abra o link em aba anônima/privada para evitar cache antigo.
-5. Verifique:
-   - mapa aparece;
-   - nomes de ruas/cidades aparecem;
-   - zoom funciona até 19;
-   - clientes/pedidos continuam aparecendo.
+Mudanças desta versão:
+1. Usa o endereço e a versão do protomaps-leaflet indicados na documentação oficial.
+2. Testa se mapa_tgr_200km.pmtiles pode ser acessado pelo navegador.
+3. Se o PMTiles falhar, mostra automaticamente o mapa online antigo como segurança.
+4. Mostra na tela inicial se o mapa de 200 km carregou ou se entrou o mapa de segurança.
+5. Recoloca o botão ATUALIZAR SISTEMA.
+6. Não usa Service Worker/PWA nesta etapa.
 
-Esta versão ainda exige internet para:
-- Leaflet;
-- Protomaps Leaflet;
-- SheetJS;
-- QRCodeJS;
-- carregamento do site pelo GitHub Pages.
-O arquivo do mapa em si vem do repositório.
+UPLOAD NO GITHUB:
+- index.html
+- mapa_tgr_200km.pmtiles
+
+Abra em aba anônima para testar.
+Se aparecer a mensagem:
+  "Mapa TGR 200 km carregado..." = PMTiles funcionou.
+Se aparecer:
+  "Mapa online de segurança ativo..." = o site está funcionando, mas o PMTiles foi bloqueado/falhou.
