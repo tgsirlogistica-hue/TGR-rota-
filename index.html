@@ -106,6 +106,10 @@ box-shadow:0 2px 8px #0004;display:none}
 .atualizacaoOk{color:#148a2a;font-weight:bold}
 .atualizacaoErro{color:#b00000;font-weight:bold}
 
+
+.paginaInicialAtualizacao{display:block;margin-top:16px}
+.paginaInicialAtualizacao .atualizarRotaBtn{max-width:420px;margin:0 auto;display:block}
+
 </style>
 </head>
 <body>
@@ -121,15 +125,17 @@ box-shadow:0 2px 8px #0004;display:none}
   </div>
 </div>
 
+
+<div id="atualizarRotaBox" class="atualizarRotaBox paginaInicialAtualizacao">
+  <button id="atualizarRotaBtn" class="atualizarRotaBtn" type="button">Atualizar rota do dia</button>
+  <div id="atualizacaoInfo" class="atualizacaoInfo">Última atualização: ainda não realizada</div>
+</div>
+
 <div id="map"></div>
 <div class="topo">
   <h2>Rotas TGR</h2>
   <div style="display:none"><select id="placa"><option value="">Selecione a placa...</option></select></div>
   <div id="info" class="info"></div>
-<div id="atualizarRotaBox" class="atualizarRotaBox">
-  <button id="atualizarRotaBtn" class="atualizarRotaBtn" type="button">Atualizar rota do dia</button>
-  <div id="atualizacaoInfo" class="atualizacaoInfo">Última atualização: ainda não realizada</div>
-</div>
 <button id="trocarRota" type="button">VOLTAR</button>
   <div id="pedidos" class="pedidos"></div>
 </div>
