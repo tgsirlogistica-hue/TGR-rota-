@@ -108,9 +108,9 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
 
 .downloadInfoTGR{
   margin-top:10px;
-  padding:11px 12px;
+  padding:10px;
   border:1px solid #ddd;
-  border-radius:10px;
+  border-radius:8px;
   background:#fafafa;
   text-align:left
 }
@@ -716,14 +716,7 @@ document.addEventListener('DOMContentLoaded',function(){
   const barra=document.getElementById('downloadBarra');
   const texto=document.getElementById('downloadTexto');
   const ultima=document.getElementById('downloadUltimaAtualizacao');
-  const CHAVE='tgrUltimaAtualizacao200km';
-
-  function fmtBytes(n){
-    if(!Number.isFinite(n) || n<=0) return '';
-    if(n>=1024*1024) return (n/(1024*1024)).toFixed(1)+' MB';
-    if(n>=1024) return (n/1024).toFixed(0)+' KB';
-    return n+' B';
-  }
+  const CHAVE='tgrUltimaAtualizacaoTudo';
 
   function fmtDataHora(valor){
     if(!valor) return '';
@@ -734,7 +727,7 @@ document.addEventListener('DOMContentLoaded',function(){
     });
   }
 
-  function restaurarUltimaAtualizacao(){
+  function restaurarEstado(){
     const salvo=localStorage.getItem(CHAVE);
     if(!salvo) return;
     const f=fmtDataHora(salvo);
@@ -747,63 +740,63 @@ document.addEventListener('DOMContentLoaded',function(){
     if(texto){
       texto.classList.remove('erro');
       texto.classList.add('ok');
-      texto.textContent='Sistema atualizado. Atualize novamente quando houver nova rota.';
+      texto.textContent='Dados do sistema atualizados.';
     }
   }
 
-  restaurarUltimaAtualizacao();
+  async function baixarAtualizacao(url,nome){
+    const resp=await fetch(url+(url.includes('?')?'&':'?')+'v='+Date.now(),{cache:'no-store'});
+    if(!resp.ok) throw new Error(nome+' HTTP '+resp.status);
+    await resp.arrayBuffer();
+    return true;
+  }
+
+  restaurarEstado();
 
   if(b){
     b.addEventListener('click',async function(){
       b.disabled=true;
       b.classList.remove('pronto','falha');
       b.classList.add('baixando');
-      b.textContent='BAIXANDO ATUALIZAÇÃO...';
+      b.textContent='ATUALIZANDO...';
 
       if(box) box.style.display='block';
-      if(barra) barra.style.width='0%';
+      if(barra) barra.style.width='8%';
 
       if(texto){
         texto.classList.remove('ok','erro');
-        texto.textContent='Iniciando download do mapa de 200 km...';
+        texto.textContent='Atualizando rotas...';
       }
 
       try{
-        const resp=await fetch('./mapa_tgr_200km.pmtiles?v='+Date.now(),{cache:'no-store'});
-        if(!resp.ok) throw new Error('HTTP '+resp.status);
+        // 1) Rotas
+        await baixarAtualizacao('./rotas.csv','rotas.csv');
+        if(barra) barra.style.width='28%';
 
-        const total=Number(resp.headers.get('content-length')) || 0;
-        const reader=resp.body && resp.body.getReader ? resp.body.getReader() : null;
+        // 2) PIX
+        if(texto) texto.textContent='Atualizando PIX...';
+        await baixarAtualizacao('./pix.csv','pix.csv');
+        if(barra) barra.style.width='48%';
 
-        if(reader){
-          let recebido=0;
-          while(true){
-            const {done,value}=await reader.read();
-            if(done) break;
-            recebido += value ? value.byteLength : 0;
+        // 3) Base de clientes
+        if(texto) texto.textContent='Atualizando base de clientes...';
+        await baixarAtualizacao('./Base de Clientes.xlsx','Base de Clientes.xlsx');
+        if(barra) barra.style.width='68%';
 
-            if(total>0){
-              const pct=Math.min(100,Math.round((recebido/total)*100));
-              if(barra) barra.style.width=pct+'%';
-              if(texto) texto.textContent='Baixando mapa... '+pct+'% ('+fmtBytes(recebido)+' / '+fmtBytes(total)+')';
-            }else{
-              if(texto) texto.textContent='Baixando mapa... '+fmtBytes(recebido);
-            }
-          }
-        }else{
-          await resp.arrayBuffer();
-        }
-
+        // 4) Mapa PMTiles
+        if(texto) texto.textContent='Atualizando mapa de 200 km...';
+        await baixarAtualizacao('./mapa_tgr_200km.pmtiles','mapa_tgr_200km.pmtiles');
         if(barra) barra.style.width='100%';
 
         const agora=new Date().toISOString();
         localStorage.setItem(CHAVE,agora);
 
         if(ultima) ultima.textContent='Última atualização: '+fmtDataHora(agora);
+
         if(texto){
           texto.classList.remove('erro');
           texto.classList.add('ok');
-          texto.textContent='Atualização concluída com sucesso.';
+          texto.textContent='Tudo atualizado com sucesso: rotas, PIX, clientes e mapa.';
         }
 
         b.classList.remove('baixando','falha');
@@ -811,8 +804,15 @@ document.addEventListener('DOMContentLoaded',function(){
         b.textContent='ATUALIZADO ✓';
         b.disabled=false;
 
+        // Reload data/UI from the newly fetched files without caching.
+        setTimeout(function(){
+          const u=new URL(window.location.href);
+          u.searchParams.set('atualizar',Date.now().toString());
+          window.location.replace(u.toString());
+        },900);
+
       }catch(err){
-        console.error('Falha ao baixar a atualização:',err);
+        console.error('Falha ao atualizar sistema:',err);
         b.disabled=false;
         b.classList.remove('pronto','baixando');
         b.classList.add('falha');
@@ -821,7 +821,7 @@ document.addEventListener('DOMContentLoaded',function(){
         if(texto){
           texto.classList.remove('ok');
           texto.classList.add('erro');
-          texto.textContent='Falha ao baixar a atualização. Verifique a internet e tente novamente.';
+          texto.textContent='Falha ao atualizar. Verifique a internet e tente novamente.';
         }
       }
     });
