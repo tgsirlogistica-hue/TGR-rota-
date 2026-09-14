@@ -1,41 +1,31 @@
-TGR OFFLINE — ZOOM 19 + NOMES DE RUAS
+TESTE MAPA TGR 200 KM
 
-BASE
-Esta versão foi criada a partir do index.html restaurado enviado em 14/09/2026.
-As funções operacionais do arquivo original foram mantidas.
+Objetivo desta versão:
+- testar SOMENTE o mapa PMTiles de 200 km;
+- manter o restante do index.html original;
+- sem PWA;
+- sem Service Worker;
+- sem botão de atualização offline;
+- zoom da interface até 19;
+- dados do PMTiles nativos até 15, com overzoom acima disso.
 
-MAPA
-- mapa_tgr_100km.pmtiles
-- Protomaps Leaflet (estilo detalhado com rótulos)
-- idioma: português
-- zoom do aplicativo: até 19
-- dados cartográficos nativos do arquivo: até 15
-- zoom 16–19 usa overzoom dos dados de z15
-- não usa o servidor público raster do OpenStreetMap para o mapa-base
+COMO TESTAR NO GITHUB
+1. Faça backup do index.html atual.
+2. Envie estes dois arquivos para a raiz do repositório:
+   - index.html
+   - mapa_tgr_200km.pmtiles
+3. Aguarde o GitHub Pages atualizar.
+4. Abra o link em aba anônima/privada para evitar cache antigo.
+5. Verifique:
+   - mapa aparece;
+   - nomes de ruas/cidades aparecem;
+   - zoom funciona até 19;
+   - clientes/pedidos continuam aparecendo.
 
-PRIMEIRO USO
-1. Publique TODOS os arquivos desta pasta na raiz do GitHub Pages.
-2. Abra o sistema com internet.
-3. Na tela de escolha da placa, clique em PREPARAR / ATUALIZAR OFFLINE.
-4. Aguarde aparecer: SISTEMA PRONTO PARA USO OFFLINE.
-5. Só depois faça o teste em modo avião.
-
-IMPORTANTE
-As bibliotecas Protomaps Leaflet, SheetJS e QRCodeJS são baixadas da internet
-durante a preparação inicial e ficam salvas no cache offline do navegador.
-Por isso, a PRIMEIRA preparação precisa obrigatoriamente de internet.
-
-ATUALIZAÇÃO DIÁRIA
-Depois de trocar rotas.csv e pix.csv no GitHub, o motorista deve abrir com internet
-e clicar em ATUALIZAR CONTEÚDO OFFLINE antes de sair para a rota.
-
-ARQUIVOS DO PACOTE
-index.html
-service-worker.js
-manifest.json
-leaflet.css
-leaflet.js
-mapa_tgr_100km.pmtiles
-rotas.csv
-pix.csv
-Base de Clientes.xlsx
+Esta versão ainda exige internet para:
+- Leaflet;
+- Protomaps Leaflet;
+- SheetJS;
+- QRCodeJS;
+- carregamento do site pelo GitHub Pages.
+O arquivo do mapa em si vem do repositório.

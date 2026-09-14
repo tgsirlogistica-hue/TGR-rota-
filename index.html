@@ -4,8 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <title>Rotas TGR - Motoristas</title>
-<link rel="stylesheet" href="./leaflet.css">
-<link rel="manifest" href="./manifest.json">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
 html,body{height:100%;margin:0;font-family:Arial,sans-serif;background:#f4f4f4}
 #map{height:100%}
@@ -91,49 +90,6 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
   .inicioCard button:disabled{opacity:.45;cursor:not-allowed}
   #trocarRota{position:fixed;top:12px;right:12px;z-index:1100;margin:0;padding:6px 9px;border:1px solid #bbb;border-radius:7px;background:rgba(255,255,255,.92);color:#555;font-size:10px;font-weight:bold;cursor:pointer;box-shadow:0 1px 5px #0002}
 
-
-.offlineBox{
-  margin-top:18px;
-  padding-top:16px;
-  border-top:1px solid #e1e1e1;
-}
-.inicioCard .offlineBtn{
-  width:100%;
-  margin-top:0;
-  padding:11px;
-  border:1px solid #bbb;
-  border-radius:8px;
-  background:#fff;
-  color:#333;
-  font-weight:700;
-  font-size:12px;
-  cursor:pointer;
-}
-.inicioCard .offlineBtn.baixando{background:#f0f0f0;color:#555}
-.inicioCard .offlineBtn.pronto{background:#148a2a;color:#fff;border-color:#148a2a}
-.offlineStatus{
-  margin-top:8px;
-  font-size:11px;
-  line-height:1.35;
-  color:#666;
-  min-height:15px;
-}
-.offlineProgresso{
-  width:100%;
-  height:7px;
-  border-radius:999px;
-  background:#e4e4e4;
-  overflow:hidden;
-  margin-top:8px;
-  display:none;
-}
-.offlineProgresso > div{
-  width:0%;
-  height:100%;
-  background:#c00000;
-  transition:width .2s ease;
-}
-
 </style>
 </head>
 <body>
@@ -146,11 +102,6 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
       <option value="">Selecione a placa...</option>
     </select>
     <button id="entrarRota" disabled>ABRIR ROTA</button>
-    <div class="offlineBox">
-      <button id="offlineBtn" class="offlineBtn" type="button">PREPARAR / ATUALIZAR OFFLINE</button>
-      <div id="offlineProgresso" class="offlineProgresso"><div id="offlineBarra"></div></div>
-      <div id="offlineStatus" class="offlineStatus">Use com internet antes de sair para a rota.</div>
-    </div>
   </div>
 </div>
 
@@ -172,7 +123,7 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
     <div id="pixConteudo"></div>
   </div>
 </div>
-<script src="./leaflet.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/protomaps-leaflet@5.1.0/dist/protomaps-leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -370,25 +321,17 @@ function preencherPlacas(){
 }
 
 const map=L.map('map',{
-  minZoom:7,
   maxZoom:19
 }).setView([-11.30,-41.85],9);
 
-/*
-  MAPA OFFLINE TGR
-  - arquivo local: mapa_tgr_200km.pmtiles
-  - dados cartográficos nativos até z15
-  - visualização/overzoom permitida até z19
-  - rótulos de ruas/cidades renderizados pelo Protomaps Leaflet
-*/
-const mapaBaseOffline=protomapsL.leafletLayer({
+const mapaBaseTGR=protomapsL.leafletLayer({
   url:'./mapa_tgr_200km.pmtiles',
   flavor:'light',
   lang:'pt',
   maxDataZoom:15,
   attribution:'&copy; OpenStreetMap contributors'
 });
-mapaBaseOffline.addTo(map);
+mapaBaseTGR.addTo(map);
 let layer=L.layerGroup().addTo(map);
 let marcadoresPorPedido=new Map();
 let pedidosMinimizados=true;
@@ -657,169 +600,9 @@ botao.addEventListener('click',function(){
 
 
 <script>
-(function(){
-  const ARQUIVOS_LOCAIS = [
-    './index.html',
-    './manifest.json',
-    './leaflet.css',
-    './leaflet.js',
-    './mapa_tgr_200km.pmtiles',
-    './rotas.csv',
-    './pix.csv',
-    './Base de Clientes.xlsx'
-  ];
-
-  const ARQUIVOS_EXTERNOS = [
-    'https://cdn.jsdelivr.net/npm/protomaps-leaflet@5.1.0/dist/protomaps-leaflet.js',
-    'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',
-    'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js'
-  ];
-
-  const CACHE_OFFLINE = 'tgr-offline-completo-v2-200km';
-
-  function tamanhoHumano(bytes){
-    if(!Number.isFinite(bytes)) return '';
-    if(bytes < 1024*1024) return (bytes/1024).toFixed(0)+' KB';
-    return (bytes/(1024*1024)).toFixed(1)+' MB';
-  }
-
-  async function baixarComProgresso(url, onProgress){
-    const r = await fetch(url,{cache:'no-store'});
-    if(!r.ok) throw new Error('Falha ao baixar '+url+' ('+r.status+')');
-
-    const total = Number(r.headers.get('content-length')) || 0;
-    if(!r.body || !r.body.getReader){
-      const blob=await r.blob();
-      onProgress(blob.size, total || blob.size);
-      return new Response(blob,{headers:r.headers,status:r.status,statusText:r.statusText});
-    }
-
-    const reader=r.body.getReader();
-    const partes=[];
-    let recebido=0;
-
-    while(true){
-      const {done,value}=await reader.read();
-      if(done) break;
-      partes.push(value);
-      recebido += value.byteLength;
-      onProgress(recebido,total);
-    }
-
-    const blob=new Blob(partes,{type:r.headers.get('content-type')||'application/octet-stream'});
-    return new Response(blob,{
-      status:200,
-      headers:{
-        'Content-Type':r.headers.get('content-type')||'application/octet-stream',
-        'Content-Length':String(blob.size)
-      }
-    });
-  }
-
-  async function prepararOffline(){
-    const btn=document.getElementById('offlineBtn');
-    const status=document.getElementById('offlineStatus');
-    const box=document.getElementById('offlineProgresso');
-    const barra=document.getElementById('offlineBarra');
-
-    btn.disabled=true;
-    btn.classList.remove('pronto');
-    btn.classList.add('baixando');
-    btn.textContent='PREPARANDO MODO OFFLINE...';
-    box.style.display='block';
-    barra.style.width='2%';
-    status.textContent='Iniciando atualização...';
-
-    try{
-      if('serviceWorker' in navigator){
-        await navigator.serviceWorker.register('./service-worker.js');
-        await navigator.serviceWorker.ready;
-      }
-
-      const cache=await caches.open(CACHE_OFFLINE);
-
-      // Arquivos pequenos/local operational data
-      const pequenos=[
-        './index.html','./manifest.json','./leaflet.css','./leaflet.js',
-        './rotas.csv','./pix.csv','./Base de Clientes.xlsx'
-      ];
-
-      let concluido=0;
-      const totalEtapas=pequenos.length + ARQUIVOS_EXTERNOS.length + 1;
-
-      for(const url of pequenos){
-        status.textContent='Salvando '+url.replace('./','')+'...';
-        const r=await fetch(url,{cache:'no-store'});
-        if(!r.ok) throw new Error('Falha ao baixar '+url);
-        await cache.put(new Request(url),r.clone());
-        concluido++;
-        barra.style.width=Math.round((concluido/totalEtapas)*70)+'%';
-      }
-
-      // Dependências externas usadas pelo sistema
-      for(const url of ARQUIVOS_EXTERNOS){
-        status.textContent='Salvando biblioteca do sistema...';
-        const r=await fetch(url,{mode:'cors',cache:'no-store'});
-        if(!r.ok) throw new Error('Falha ao baixar biblioteca externa');
-        await cache.put(new Request(url),r.clone());
-        concluido++;
-        barra.style.width=Math.round((concluido/totalEtapas)*70)+'%';
-      }
-
-      // O mapa de ~12 MB tem progresso próprio
-      status.textContent='Baixando mapa offline... 0%';
-      const respostaMapa=await baixarComProgresso('./mapa_tgr_200km.pmtiles',(recebido,total)=>{
-        if(total>0){
-          const pct=Math.min(100,Math.round(recebido/total*100));
-          status.textContent='Baixando mapa offline... '+pct+'% ('+tamanhoHumano(recebido)+' / '+tamanhoHumano(total)+')';
-          barra.style.width=(70 + pct*0.30)+'%';
-        }else{
-          status.textContent='Baixando mapa offline... '+tamanhoHumano(recebido);
-        }
-      });
-      await cache.put(new Request('./mapa_tgr_200km.pmtiles'),respostaMapa);
-
-      localStorage.setItem('tgrOfflineAtualizadoEm',new Date().toISOString());
-
-      barra.style.width='100%';
-      status.textContent='Sistema pronto para uso offline.';
-      btn.textContent='OFFLINE PRONTO ✓';
-      btn.classList.remove('baixando');
-      btn.classList.add('pronto');
-
-      setTimeout(()=>{ btn.disabled=false; },1200);
-    }catch(e){
-      console.error(e);
-      status.textContent='Não foi possível concluir: '+(e && e.message ? e.message : e);
-      btn.textContent='TENTAR NOVAMENTE';
-      btn.classList.remove('baixando','pronto');
-      btn.disabled=false;
-      barra.style.width='0%';
-    }
-  }
-
-  function atualizarEstadoOffline(){
-    const status=document.getElementById('offlineStatus');
-    const btn=document.getElementById('offlineBtn');
-    const iso=localStorage.getItem('tgrOfflineAtualizadoEm');
-    if(iso){
-      const d=new Date(iso);
-      status.textContent='Offline preparado em '+d.toLocaleString('pt-BR')+'.';
-      btn.textContent='ATUALIZAR CONTEÚDO OFFLINE';
-      btn.classList.add('pronto');
-    }
-  }
-
-  document.addEventListener('DOMContentLoaded',()=>{
-    const btn=document.getElementById('offlineBtn');
-    if(btn) btn.addEventListener('click',prepararOffline);
-    atualizarEstadoOffline();
-
-    if('serviceWorker' in navigator){
-      navigator.serviceWorker.register('./service-worker.js').catch(console.error);
-    }
-  });
-})();
+window.addEventListener('error', function(e){
+  console.error('TGR mapa erro:', e.message || e.error);
+});
 </script>
 
 </body>
