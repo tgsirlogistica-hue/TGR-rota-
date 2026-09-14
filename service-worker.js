@@ -1,4 +1,4 @@
-const CACHE_NAME='tgr-offline-pmtiles-v1';
+const CACHE_NAME='tgr-offline-pmtiles-v2';
 
 const LOCAIS=[
   './',
