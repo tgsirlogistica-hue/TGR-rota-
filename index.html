@@ -101,6 +101,44 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
   .mapaStatusTeste.ok{color:#148a2a;font-weight:bold}
   .mapaStatusTeste.erro{color:#b00000;font-weight:bold}
 
+.downloadInfoTGR{
+  margin-top:10px;
+  padding:10px;
+  border:1px solid #ddd;
+  border-radius:8px;
+  background:#fafafa;
+  text-align:left
+}
+.downloadInfoTitulo{
+  font-size:12px;
+  font-weight:bold;
+  color:#333;
+  margin-bottom:6px
+}
+.downloadProgresso{
+  display:none;
+  width:100%;
+  height:8px;
+  background:#e1e1e1;
+  border-radius:20px;
+  overflow:hidden;
+  margin:7px 0
+}
+.downloadProgresso > div{
+  width:0%;
+  height:100%;
+  background:#c00000;
+  transition:width .18s ease
+}
+.downloadTexto{
+  font-size:11px;
+  line-height:1.4;
+  color:#666
+}
+.downloadTexto.ok{color:#148a2a;font-weight:bold}
+.downloadTexto.erro{color:#b00000;font-weight:bold}
+
+
 </style>
 </head>
 <body>
@@ -114,6 +152,11 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
     </select>
     <button id="entrarRota" disabled>ABRIR ROTA</button>
 <button id="atualizarSistemaTeste" class="atualizarSistemaTeste" type="button">ATUALIZAR SISTEMA</button>
+<div class="downloadInfoTGR">
+  <div class="downloadInfoTitulo">Atualização do sistema</div>
+  <div id="downloadProgresso" class="downloadProgresso"><div id="downloadBarra"></div></div>
+  <div id="downloadTexto" class="downloadTexto">Use com internet para baixar a atualização antes de sair para a rota.</div>
+</div>
 <div id="mapaStatusTeste" class="mapaStatusTeste">Verificando mapa de 200 km...</div>
   </div>
 </div>
@@ -657,13 +700,75 @@ botao.addEventListener('click',function(){
 <script>
 document.addEventListener('DOMContentLoaded',function(){
   const b=document.getElementById('atualizarSistemaTeste');
+  const box=document.getElementById('downloadProgresso');
+  const barra=document.getElementById('downloadBarra');
+  const texto=document.getElementById('downloadTexto');
+
+  function fmtBytes(n){
+    if(!Number.isFinite(n) || n<=0) return '';
+    if(n>=1024*1024) return (n/(1024*1024)).toFixed(1)+' MB';
+    if(n>=1024) return (n/1024).toFixed(0)+' KB';
+    return n+' B';
+  }
+
   if(b){
-    b.addEventListener('click',function(){
+    b.addEventListener('click',async function(){
       b.disabled=true;
-      b.textContent='ATUALIZANDO...';
-      const u=new URL(window.location.href);
-      u.searchParams.set('atualizar',Date.now().toString());
-      window.location.replace(u.toString());
+      b.textContent='BAIXANDO ATUALIZAÇÃO...';
+      if(box) box.style.display='block';
+      if(barra) barra.style.width='0%';
+      if(texto){
+        texto.classList.remove('ok','erro');
+        texto.textContent='Iniciando download do mapa de 200 km...';
+      }
+
+      try{
+        const resp=await fetch('./mapa_tgr_200km.pmtiles?v='+Date.now(),{cache:'no-store'});
+        if(!resp.ok) throw new Error('HTTP '+resp.status);
+
+        const total=Number(resp.headers.get('content-length')) || 0;
+        const reader=resp.body && resp.body.getReader ? resp.body.getReader() : null;
+
+        if(reader){
+          let recebido=0;
+          while(true){
+            const {done,value}=await reader.read();
+            if(done) break;
+            recebido += value ? value.byteLength : 0;
+            if(total>0){
+              const pct=Math.min(100,Math.round((recebido/total)*100));
+              if(barra) barra.style.width=pct+'%';
+              if(texto) texto.textContent='Baixando mapa... '+pct+'% ('+fmtBytes(recebido)+' / '+fmtBytes(total)+')';
+            }else{
+              if(texto) texto.textContent='Baixando mapa... '+fmtBytes(recebido);
+            }
+          }
+        }else{
+          await resp.arrayBuffer();
+        }
+
+        if(barra) barra.style.width='100%';
+        if(texto){
+          texto.classList.add('ok');
+          texto.textContent='Download concluído. Atualizando informações da rota...';
+        }
+        b.textContent='ATUALIZAÇÃO CONCLUÍDA ✓';
+
+        setTimeout(function(){
+          const u=new URL(window.location.href);
+          u.searchParams.set('atualizar',Date.now().toString());
+          window.location.replace(u.toString());
+        },900);
+
+      }catch(err){
+        console.error('Falha no download da atualização:',err);
+        b.disabled=false;
+        b.textContent='TENTAR ATUALIZAR NOVAMENTE';
+        if(texto){
+          texto.classList.add('erro');
+          texto.textContent='Falha ao baixar a atualização. Verifique a internet e tente novamente.';
+        }
+      }
     });
   }
 });
