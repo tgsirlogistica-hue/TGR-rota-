@@ -150,6 +150,8 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
 }
 
 
+
+.localizacaoBtn{position:fixed;right:12px;bottom:22px;z-index:1100;border:0;border-radius:22px;padding:11px 14px;background:#fff;color:#1f2937;font-weight:bold;font-size:12px;box-shadow:0 2px 10px #0004;cursor:pointer}.localizacaoBtn.ativo{background:#1565c0;color:#fff}.localizacaoBtn.erro{background:#b00000;color:#fff}.localizacaoMotorista{width:18px;height:18px;border-radius:50%;background:#1565c0;border:3px solid #fff;box-shadow:0 0 0 5px rgba(21,101,192,.22),0 1px 6px #0008}
 </style>
 </head>
 <body>
@@ -829,5 +831,10 @@ document.addEventListener('DOMContentLoaded',function(){
 });
 </script>
 
+
+<button id="localizacaoBtn" class="localizacaoBtn" type="button">◎ MINHA LOCALIZAÇÃO</button>
+<script>
+(function(){let wid=null,m=null,c=null,pos=null,primeira=true;const btn=document.getElementById('localizacaoBtn');function ico(){return L.divIcon({className:'',html:'<div class="localizacaoMotorista"></div>',iconSize:[24,24],iconAnchor:[12,12]});}function ok(p){const ll=[p.coords.latitude,p.coords.longitude],acc=Number(p.coords.accuracy)||0;pos=ll;if(!m){m=L.marker(ll,{icon:ico(),zIndexOffset:5000}).addTo(map);m.bindPopup('<div class="popup"><b>Sua localização</b><br>Precisão aproximada: '+Math.round(acc)+' m</div>');}else{m.setLatLng(ll);m.setPopupContent('<div class="popup"><b>Sua localização</b><br>Precisão aproximada: '+Math.round(acc)+' m</div>');}if(!c)c=L.circle(ll,{radius:acc,weight:1,opacity:.55,fillOpacity:.08}).addTo(map);else{c.setLatLng(ll);c.setRadius(acc);}btn.classList.remove('erro');btn.classList.add('ativo');btn.textContent='◎ MINHA LOCALIZAÇÃO';if(primeira){primeira=false;map.setView(ll,Math.max(map.getZoom(),16));}}function erro(e){console.warn(e);btn.classList.remove('ativo');btn.classList.add('erro');btn.textContent=e&&e.code===1?'LOCALIZAÇÃO BLOQUEADA':'GPS INDISPONÍVEL';}function iniciar(){if(!navigator.geolocation){erro({code:0});return;}if(wid!==null)return;btn.textContent='LOCALIZANDO...';wid=navigator.geolocation.watchPosition(ok,erro,{enableHighAccuracy:true,maximumAge:3000,timeout:20000});}btn.addEventListener('click',()=>{if(pos){map.setView(pos,Math.max(map.getZoom(),16));if(m)m.openPopup();}else iniciar();});iniciar();})();
+</script>
 </body>
 </html>
