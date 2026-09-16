@@ -58,8 +58,8 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
 .popup{font-size:13px;line-height:1.45;min-width:180px}
 .gps{display:block;text-align:center;text-decoration:none;background:#148a2a;color:white!important;font-weight:bold;padding:9px;margin-top:8px;border-radius:7px}
 @media(max-width:600px){.topo{left:8px;right:auto;top:8px;width:calc(100vw - 16px);max-width:none}}
-.pixTela{position:fixed;inset:0;z-index:12000;background:#f4f4f4;display:none;align-items:center;justify-content:center;padding:18px;box-sizing:border-box}
-.pixCard{width:min(430px,100%);background:#fff;border-radius:16px;padding:22px;box-shadow:0 8px 30px #0003;text-align:center}
+.pixTela{position:fixed;inset:0;z-index:12000;background:#f4f4f4;display:none;align-items:flex-start;justify-content:center;padding:18px;box-sizing:border-box;overflow-y:auto}
+.pixCard{width:min(430px,100%);background:#fff;border-radius:16px;padding:22px;box-shadow:0 8px 30px #0003;text-align:center;margin:auto}
 .pixTopo{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px}
 .pixTopo h2{margin:0;font-size:18px;color:#222}
 .pixFechar{border:1px solid #bbb;background:#fff;border-radius:7px;padding:8px 11px;font-weight:bold;cursor:pointer}
@@ -293,14 +293,13 @@ async function carregarPix(){
       const cliente=normalizarCodigoCliente(cols[pos.cliente]);
       const payload=String(cols[pos.payload]??'').trim();
       if(!cliente || !payload) return;
-      if(!dadosPix.has(cliente)){
-        dadosPix.set(cliente,{
-          nf:String(cols[pos.nf]??'').trim(),
-          valor:String(cols[pos.valor]??'').trim(),
-          payload,
-          enderecoPix:String(cols[pos.enderecoPix]??'').trim()
-        });
-      }
+      if(!dadosPix.has(cliente)) dadosPix.set(cliente,[]);
+      dadosPix.get(cliente).push({
+        nf:String(cols[pos.nf]??'').trim(),
+        valor:String(cols[pos.valor]??'').trim(),
+        payload,
+        enderecoPix:String(cols[pos.enderecoPix]??'').trim()
+      });
     });
   }catch(erro){
     console.warn('pix.csv não carregado:',erro);
@@ -481,28 +480,41 @@ function alternarStatus(p){
 function abrirPagamento(p){
   const tela=document.getElementById('pixTela');
   const conteudo=document.getElementById('pixConteudo');
-  const info=dadosPix.get(normalizarCodigoCliente(p.cliente));
+  const infos=dadosPix.get(normalizarCodigoCliente(p.cliente)) || [];
   if(!tela || !conteudo) return;
-  if(!info){
+
+  if(!infos.length){
     conteudo.innerHTML='<div class="pixAviso"><b>PIX não localizado para este cliente.</b><br><br>Código do cliente: '+esc(p.cliente)+'</div>';
   }else{
-    const valor=Number(String(info.valor||'0').replace(',','.'))||0;
-    conteudo.innerHTML='<div class="pixValorLabel">Valor do PIX</div>'+
-      '<div class="pixValor">R$ '+valor.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'</div>'+
-      '<div id="pixQr"></div>'+
-      '<button id="pixCopiar" class="pixCopiar" type="button">Copiar código pix</button>'+
+    conteudo.innerHTML=
+      '<div style="font-size:13px;color:#666;margin-bottom:12px">Cliente '+esc(p.cliente)+
+      (infos.length>1?' • '+infos.length+' cobranças PIX':'')+
+      '</div>'+
+      infos.map((info,i)=>{
+        const valor=Number(String(info.valor||'0').replace(',','.'))||0;
+        return '<div class="pixCobranca" style="padding:'+(i?'18px 0 0':'0')+';margin-top:'+(i?'18px':'0')+';border-top:'+(i?'1px solid #ddd':'0')+'">'+
+          '<div style="font-size:14px;font-weight:bold;margin-bottom:5px">NF '+esc(info.nf||'Não informada')+'</div>'+
+          '<div class="pixValorLabel">Valor do PIX</div>'+
+          '<div class="pixValor">R$ '+valor.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'</div>'+
+          '<div id="pixQr_'+i+'" style="display:flex;align-items:center;justify-content:center;min-height:230px;margin:0 auto 14px"></div>'+
+          '<button class="pixCopiar pixCopiarMulti" data-pix-i="'+i+'" type="button">Copiar código pix</button>'+
+          '</div>';
+      }).join('')+
       '<p class="pixInstrucao">Utilize um aplicativo compatível para fazer a leitura do QR code</p>';
-    const qr=document.getElementById('pixQr');
-    if(qr && window.QRCode){
-      new QRCode(qr,{text:info.payload,width:230,height:230,correctLevel:QRCode.CorrectLevel.M});
-    }else if(qr){
-      qr.innerHTML='<div class="pixAviso">Não foi possível gerar o QR Code.</div>';
-    }
 
-    const botaoCopiar=document.getElementById('pixCopiar');
-    if(botaoCopiar){
-      const codigoParaCopiar=info.enderecoPix || info.payload;
-      botaoCopiar.onclick=async function(){
+    infos.forEach((info,i)=>{
+      const qr=document.getElementById('pixQr_'+i);
+      if(qr && window.QRCode){
+        new QRCode(qr,{text:info.payload,width:230,height:230,correctLevel:QRCode.CorrectLevel.M});
+      }else if(qr){
+        qr.innerHTML='<div class="pixAviso">Não foi possível gerar o QR Code.</div>';
+      }
+    });
+
+    conteudo.querySelectorAll('.pixCopiarMulti').forEach(btn=>{
+      btn.onclick=async function(){
+        const info=infos[Number(this.dataset.pixI)];
+        const codigoParaCopiar=info.enderecoPix || info.payload;
         const ok=await copiarCodigoPix(codigoParaCopiar);
         if(ok){
           const textoOriginal=this.textContent;
@@ -514,12 +526,12 @@ function abrirPagamento(p){
           },1600);
         }
       };
-    }
+    });
   }
+
   tela.style.display='flex';
   tela.setAttribute('aria-hidden','false');
 }
-
 
 async function copiarCodigoPix(texto){
   if(!texto) return false;
