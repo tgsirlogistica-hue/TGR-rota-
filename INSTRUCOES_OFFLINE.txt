@@ -1,0 +1,11 @@
+TGR ROTA - OFFLINE V2
+
+1. Publique todos os arquivos desta pasta na raiz do GitHub Pages.
+2. Abra o site COM INTERNET e pressione Ctrl+F5 uma vez.
+3. Clique em BAIXAR / ATUALIZAR DADOS OFFLINE.
+4. Aguarde DADOS OFFLINE PRONTOS ✓. O mapa tem cerca de 48 MB.
+5. Selecione uma placa e confira a rota online.
+6. Desligue a internet.
+7. Pressione F5: a lista de placas, pedidos, PIX, base e mapa devem carregar das cópias locais.
+
+Para receber as rotas novas do dia, reconecte à internet e clique novamente no botão.

@@ -1,0 +1,17 @@
+TGR ROTA OFFLINE DADOS V4
+
+Mudança principal:
+- rotas.csv, pix.csv e Base de Clientes.xlsx agora são gravados em IndexedDB.
+- após F5 sem internet, a lista de placas é reconstruída diretamente desses dados persistentes.
+- Service Worker/cache continuam cuidando do aplicativo, bibliotecas e PMTiles.
+
+PUBLICAÇÃO:
+1. Substitua index.html e sw.js no GitHub pelos arquivos deste pacote.
+2. Commit.
+3. Abra o site COM internet e use Ctrl+F5.
+4. Clique BAIXAR / ATUALIZAR DADOS OFFLINE e aguarde DADOS OFFLINE PRONTOS.
+5. Ainda online, confirme que as placas aparecem.
+6. Desligue a internet, pressione F5 e confirme que as placas continuam disponíveis.
+7. Abra uma rota e teste o mapa offline.
+
+Importante: como a V4 usa armazenamento persistente novo, faça o download offline novamente uma vez.

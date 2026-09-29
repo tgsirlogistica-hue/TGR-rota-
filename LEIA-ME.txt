@@ -1,21 +1,10 @@
-TGR - TESTE CORRIGIDO DO MAPA 200 KM
+AJUSTE V4.1 — PRIMEIRO TOQUE NO MAPA
 
-Esta versão foi refeita a partir do index.html restaurado.
+Alteração única:
+- Quando um cliente está selecionado e a lista de pedidos está aberta,
+  o primeiro toque no mapa apenas minimiza a lista.
+- O mapa continua centralizado e o popup/informações do cliente permanece aberto.
+- Com a lista já minimizada, um toque posterior no mapa pode fechar o popup normalmente.
 
-Mudanças desta versão:
-1. Usa o endereço e a versão do protomaps-leaflet indicados na documentação oficial.
-2. Testa se mapa_tgr_200km.pmtiles pode ser acessado pelo navegador.
-3. Se o PMTiles falhar, mostra automaticamente o mapa online antigo como segurança.
-4. Mostra na tela inicial se o mapa de 200 km carregou ou se entrou o mapa de segurança.
-5. Recoloca o botão ATUALIZAR SISTEMA.
-6. Não usa Service Worker/PWA nesta etapa.
-
-UPLOAD NO GITHUB:
-- index.html
-- mapa_tgr_200km.pmtiles
-
-Abra em aba anônima para testar.
-Se aparecer a mensagem:
-  "Mapa TGR 200 km carregado..." = PMTiles funcionou.
-Se aparecer:
-  "Mapa online de segurança ativo..." = o site está funcionando, mas o PMTiles foi bloqueado/falhou.
+Todo o restante da V4 foi preservado.
+No GitHub, substitua somente o index.html.
