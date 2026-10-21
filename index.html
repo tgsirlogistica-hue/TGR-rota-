@@ -44,7 +44,7 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
 .pedidos.minimizada .pedidosConteudo{display:none}
 .pedidos.minimizada .pedidosCabecalho{margin-bottom:0}
 .pedidoItem{cursor:pointer;background:#fafafa;border:1px solid #ddd;border-radius:8px;padding:8px;margin-bottom:7px;font-size:12px;line-height:1.45}
-.pedidoTopo{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.pedidoItem.prioritario{background:#eaf3ff;border:2px solid #1565c0}.prioridadeDetalhes{margin-top:7px;padding:8px;border-radius:6px;background:#d9eaff;color:#124b91;line-height:1.5}.prioridadeSelo{display:inline-block;background:#1565c0;color:#fff;padding:3px 7px;border-radius:5px;font-weight:bold;margin-bottom:5px}.pedidoTopo{display:flex;justify-content:space-between;gap:8px;align-items:center}
 .pedidoNum{font-weight:bold;color:#c00000;font-size:13px}
 .pedidoPeso{font-weight:bold}
 .statusBtns{display:flex;gap:8px;margin-top:7px}
@@ -207,6 +207,7 @@ if ('serviceWorker' in navigator) {
 let dados=[];
 let dadosPix=new Map();
 let dadosClientes=new Map();
+let dadosAtendimento=new Map();
 
 function parseCSV(texto){
   const linhas=[];
@@ -334,6 +335,45 @@ async function carregarBaseClientes(){
 
 function nomeFantasiaCliente(codigo){
   return dadosClientes.get(normalizarCodigoCliente(codigo)) || 'Não informado';
+}
+
+function horaPreferencial(valor){
+  if(typeof valor==='number' && Number.isFinite(valor)){
+    const minutos=Math.round(((valor%1)+1)%1*1440)%1440;
+    return String(Math.floor(minutos/60)).padStart(2,'0')+':'+String(minutos%60).padStart(2,'0');
+  }
+  const texto=String(valor??'').trim();
+  if(/^\d+(?:[.,]\d+)?$/.test(texto))return horaPreferencial(Number(texto.replace(',','.')));
+  return texto;
+}
+async function carregarAtendimentos(){
+  try{
+    const buffer=await obterBinarioPersistente('INFORMATIVO DE ATENDIMENTO.xlsx','informativo_atendimento_xlsx');
+    const wb=XLSX.read(buffer,{type:'array'});
+    const ws=wb.Sheets[wb.SheetNames[0]];
+    const linhas=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+    const cab=(linhas[0]||[]).map(normalizarCabecalho);
+    const col=nome=>cab.indexOf(nome);
+    const pos={codigo:col('codigo do cliente'),inicio:col('inicio do atendimento'),fim:col('fim do atendimento'),motivo:col('justificativa'),data:col('data do cadastro')};
+    if([pos.codigo,pos.inicio,pos.fim,pos.motivo].some(i=>i<0))throw new Error('Colunas de atendimento ausentes');
+    const novo=new Map();
+    linhas.slice(1).forEach((linha,i)=>{
+      const codigo=normalizarCodigoCliente(linha[pos.codigo]);
+      if(!codigo)return;
+      const data=pos.data>=0 ? (Number(linha[pos.data])||Date.parse(String(linha[pos.data]))||0):i;
+      const atual=novo.get(codigo);
+      if(atual && atual.data>data)return;
+      novo.set(codigo,{inicio:horaPreferencial(linha[pos.inicio]),fim:horaPreferencial(linha[pos.fim]),motivo:String(linha[pos.motivo]??'').trim(),data});
+    });
+    dadosAtendimento=novo;
+  }catch(erro){console.warn('Informativo de atendimento indisponível:',erro);}
+}
+function atendimentoCliente(codigo){return dadosAtendimento.get(normalizarCodigoCliente(codigo));}
+function detalhesAtendimento(a){
+  if(!a)return '';
+  return '<span class="prioridadeSelo">PRIORIDADE DE ATENDIMENTO</span><br>'+
+    '<b>Horário preferencial:</b> '+esc(a.inicio||'Não informado')+' às '+esc(a.fim||'Não informado')+'<br>'+
+    '<b>Motivo:</b> '+esc(a.motivo||'Não informado');
 }
 
 async function carregarPix(){
@@ -649,16 +689,18 @@ function alternarListaPedidos(){
 function renderPedidos(placa){
   const box=document.getElementById('pedidos');
   if(!placa){box.style.display='none';box.innerHTML='';return;}
-  const itens=dados.filter(x=>x.rota===placa);
+  const itens=dados.filter(x=>x.rota===placa).sort((a,b)=>Number(Boolean(atendimentoCliente(b.cliente)))-Number(Boolean(atendimentoCliente(a.cliente))));
   box.innerHTML='<div class="pedidosCabecalho">'+
     '<div class="pedidosTitulo">Pedidos da rota</div>'+
     '<button type="button" class="togglePedidos" aria-expanded="'+String(!pedidosMinimizados)+'">'+(pedidosMinimizados?'MOSTRAR':'MINIMIZAR')+'</button>'+
     '</div>'+
     '<div class="pedidosConteudo">'+itens.map((p,i)=>{
     const st=getStatus(p);
-    return '<div class="pedidoItem" data-i="'+i+'" title="Clique para localizar no mapa">'+
+    const prioridade=atendimentoCliente(p.cliente);
+    return '<div class="pedidoItem'+(prioridade?' prioritario':'')+'" data-i="'+i+'" title="Clique para localizar no mapa">'+
       '<div class="pedidoTopo"><span class="pedidoNum">Pedido '+esc(p.pedido)+' — '+esc(nomeFantasiaCliente(p.cliente))+'</span><span class="pedidoPeso">'+pesoNum(p.peso).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+' kg</span></div>'+
       '<div>Cliente: '+esc(p.cliente)+' • '+esc(p.cidade)+'</div>'+
+      (prioridade?'<div class="prioridadeDetalhes">'+detalhesAtendimento(prioridade)+'</div>':'')+
       '<div class="statusBtns">'+
       '<button class="statusBtn '+(st==='atendido'?'atendido':'pendente')+'" data-i="'+i+'">'+(st==='atendido'?'Atendido':'Pendente')+'</button>'+
       (dadosPix.has(normalizarCodigoCliente(p.cliente))
@@ -693,7 +735,8 @@ function renderMapa(placa){
 
   itens.forEach((p,i)=>{
     const st=getStatus(p);
-    const cor=st==='atendido'?'#148a2a':'#c00000';
+    const prioridade=atendimentoCliente(p.cliente);
+    const cor=st==='atendido'?'#148a2a':(prioridade?'#1565c0':'#c00000');
     const icon=L.divIcon({className:'',html:'<div class="num" style="background:'+cor+'">'+esc(p.pedido)+'</div>',iconSize:[52,34],iconAnchor:[26,17]});
     const gps=p.gps || ('https://www.google.com/maps?q='+p.lat+','+p.lon);
 
@@ -717,6 +760,7 @@ function renderMapa(placa){
       '<b>Código do cliente:</b> '+esc(p.cliente)+'<br>'+
       '<b>Pedido:</b> '+esc(p.pedido)+'<br>'+
       '<b>Peso:</b> '+esc(p.peso)+' kg<br>'+
+      (prioridade?'<div class="prioridadeDetalhes">'+detalhesAtendimento(prioridade)+'</div>':'')+
       '<a class="gps" target="_blank" rel="noopener" href="'+esc(gps)+'">ABRIR NO GPS</a></div>';
 
     const marcador=L.marker([latVisual,lonVisual],{icon}).bindPopup(popup).addTo(layer);
@@ -779,11 +823,11 @@ botao.addEventListener('click',function(){
   if(document.readyState==='loading'){
     document.addEventListener('DOMContentLoaded',function(){
       prepararTelaInicial();
-      Promise.all([carregarPix(),carregarBaseClientes()]).then(carregarRotas);
+      Promise.all([carregarPix(),carregarBaseClientes(),carregarAtendimentos()]).then(carregarRotas);
     });
   }else{
     prepararTelaInicial();
-    Promise.all([carregarPix(),carregarBaseClientes()]).then(carregarRotas);
+    Promise.all([carregarPix(),carregarBaseClientes(),carregarAtendimentos()]).then(carregarRotas);
   }
 })();
 </script>
@@ -857,15 +901,17 @@ document.addEventListener('DOMContentLoaded',function(){
       await guardar(cache,'./pix.csv','PIX',27);
       await guardar(cache,'./Base de Clientes.xlsx','base de clientes',38);
       if(texto)texto.textContent='Salvando dados operacionais no aparelho...';
-      const [rotasLocal,pixLocal,baseLocal]=await Promise.all([
+      const [rotasLocal,pixLocal,baseLocal,atendimentoLocal]=await Promise.all([
         fetch('./rotas.csv?persist='+Date.now(),{cache:'no-store'}).then(r=>{if(!r.ok)throw new Error('rotas HTTP '+r.status);return r.text();}),
         fetch('./pix.csv?persist='+Date.now(),{cache:'no-store'}).then(r=>{if(!r.ok)throw new Error('PIX HTTP '+r.status);return r.text();}),
-        fetch('./Base de Clientes.xlsx?persist='+Date.now(),{cache:'no-store'}).then(r=>{if(!r.ok)throw new Error('base clientes HTTP '+r.status);return r.arrayBuffer();})
+        fetch('./Base de Clientes.xlsx?persist='+Date.now(),{cache:'no-store'}).then(r=>{if(!r.ok)throw new Error('base clientes HTTP '+r.status);return r.arrayBuffer();}),
+        fetch('./INFORMATIVO DE ATENDIMENTO.xlsx?persist='+Date.now(),{cache:'no-store'}).then(r=>{if(!r.ok)throw new Error('informativo HTTP '+r.status);return r.arrayBuffer();}).catch(e=>{console.warn('Informativo não atualizado:',e);return null;})
       ]);
       await Promise.all([
         salvarDadoLocal('rotas_csv',rotasLocal),
         salvarDadoLocal('pix_csv',pixLocal),
-        salvarDadoLocal('base_clientes_xlsx',baseLocal)
+        salvarDadoLocal('base_clientes_xlsx',baseLocal),
+        atendimentoLocal ? salvarDadoLocal('informativo_atendimento_xlsx',atendimentoLocal) : Promise.resolve()
       ]);
       let n=0; for(const u of EXTERNOS){n++;await guardar(cache,u,'componentes do aplicativo',38+n*3);}
       await guardarMapa(cache);
@@ -874,7 +920,7 @@ document.addEventListener('DOMContentLoaded',function(){
       if(texto){texto.classList.remove('erro');texto.classList.add('ok');texto.textContent='OFFLINE PRONTO ✓ Rotas, PIX e clientes foram gravados no armazenamento persistente; aplicativo e mapa também foram salvos neste aparelho.';}
       b.classList.remove('baixando','falha');b.classList.add('pronto');b.textContent='DADOS OFFLINE PRONTOS ✓';b.disabled=false;
       // Recarrega dados diretamente da rede agora; offline o SW usará as cópias salvas.
-      await Promise.all([carregarPix(),carregarBaseClientes()]); await carregarRotas();
+      await Promise.all([carregarPix(),carregarBaseClientes(),carregarAtendimentos()]); await carregarRotas();
     }catch(err){console.error(err);b.disabled=false;b.classList.remove('pronto','baixando');b.classList.add('falha');b.textContent='TENTAR DOWNLOAD NOVAMENTE';if(texto){texto.classList.remove('ok');texto.classList.add('erro');texto.textContent='Falha no download offline: '+(err.message||err);}}
   });
 });
