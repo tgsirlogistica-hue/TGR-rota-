@@ -1064,7 +1064,7 @@ document.addEventListener('DOMContentLoaded',function(){
 </script>
 <script>
 // Substituir apenas pela URL da implantação NOVA do Apps Script de testes.
-const TGR_AUTH_URL = 'COLE_AQUI_URL_NOVO_APPS_SCRIPT';
+const TGR_AUTH_URL = 'https://script.google.com/macros/s/AKfycbz6Fvw2AyAgJR3_EK8jGsHaLy8ZApuMlkExxJevgBYGDVogEzAfY905EUPBWqhee1AD/exec';
 let tgrSessao = null;
 async function tgrAuth(acao, dados={}){
   if(!/^https:\/\/script\.google\.com\/macros\/s\//.test(TGR_AUTH_URL)) throw Error('Configure a URL do Apps Script de testes.');
