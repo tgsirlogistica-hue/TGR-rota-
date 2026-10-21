@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
-<title>Rotas TGR - Motoristas</title>
+<title>TGR Rota — Teste Sequência de Entregas</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
 html,body{height:100%;margin:0;font-family:Arial,sans-serif;background:#f4f4f4}
@@ -44,7 +44,7 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
 .pedidos.minimizada .pedidosConteudo{display:none}
 .pedidos.minimizada .pedidosCabecalho{margin-bottom:0}
 .pedidoItem{cursor:pointer;background:#fafafa;border:1px solid #ddd;border-radius:8px;padding:8px;margin-bottom:7px;font-size:12px;line-height:1.45}
-.pedidoItem.prioritario{background:#eaf3ff;border:2px solid #1565c0}.prioridadeDetalhes{margin-top:7px;padding:8px;border-radius:6px;background:#d9eaff;color:#124b91;line-height:1.5}.prioridadeSelo{display:inline-block;background:#1565c0;color:#fff;padding:3px 7px;border-radius:5px;font-weight:bold;margin-bottom:5px}.pedidoTopo{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.nomeFantasiaPrioritario{color:#1565c0;font-weight:800}.pedidoItem.prioritario{background:#eaf3ff;border:2px solid #1565c0}.prioridadeDetalhes{margin-top:7px;padding:8px;border-radius:6px;background:#d9eaff;color:#124b91;line-height:1.5}.prioridadeSelo{display:inline-block;background:#1565c0;color:#fff;padding:3px 7px;border-radius:5px;font-weight:bold;margin-bottom:5px}.pedidoTopo{display:flex;justify-content:space-between;gap:8px;align-items:center}
 .pedidoNum{font-weight:bold;color:#c00000;font-size:13px}
 .pedidoPeso{font-weight:bold}
 .statusBtns{display:flex;gap:8px;margin-top:7px}
@@ -156,7 +156,7 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
 <script>
 // TGR Offline V2 - registra o Service Worker assim que possível.
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=4').catch(console.warn));
+  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=6').catch(console.warn));
 }
 </script>
 </head>
@@ -381,7 +381,7 @@ async function carregarPix(){
     let texto=(await obterTextoPersistente('pix.csv','pix_csv')).replace(/^\uFEFF/,'');
     const linhas=parseCSV(texto);
     if(linhas.length<2) return;
-    const cab=linhas[0].map(x=>x.trim());
+    const cab=linhas[0].map(x=>String(x).replace(/^\uFEFF/,'').trim().toUpperCase());
     const idx=nome=>cab.indexOf(nome);
     const pos={
       cliente:idx('CODIGO CLIENTE'),
@@ -415,7 +415,7 @@ async function carregarRotas(){
     const linhas=parseCSV(texto);
     if(linhas.length<2) throw new Error('CSV vazio.');
 
-    const cab=linhas[0].map(x=>x.trim());
+    const cab=linhas[0].map(x=>String(x).replace(/^\uFEFF/,'').trim().toUpperCase());
     const idx=nome=>cab.indexOf(nome);
     const pos={
       cliente:idx('CODIGO DO CLIENTE'),
@@ -427,10 +427,11 @@ async function carregarRotas(){
       lat:idx('LATITUDE'),
       lon:idx('LONGITUDE'),
       gps:idx('LINK GPS'),
-      status:idx('STATUS DO PEDIDO')
+      status:idx('STATUS DO PEDIDO'),
+      ordem:idx('ORDEM DE ENTREGA')
     };
 
-    const faltando=Object.entries(pos).filter(([k,v])=>v<0).map(([k])=>k);
+    const faltando=Object.entries(pos).filter(([k,v])=>k!=='ordem' && v<0).map(([k])=>k);
     if(faltando.length) throw new Error('Colunas ausentes no CSV: '+faltando.join(', '));
 
     dados=linhas.slice(1).map(cols=>({
@@ -443,7 +444,8 @@ async function carregarRotas(){
       lat:Number(String(cols[pos.lat]??'').replace(',','.')),
       lon:Number(String(cols[pos.lon]??'').replace(',','.')),
       gps:String(cols[pos.gps]??'').trim(),
-      status:String(cols[pos.status]??'').trim()
+      status:String(cols[pos.status]??'').trim(),
+      ordem:pos.ordem>=0 && String(cols[pos.ordem]??'').trim()!=='' ? Number(String(cols[pos.ordem]).trim()) : NaN
     })).filter(x=>
       x.rota &&
       x.status.toLowerCase()==='roteirizado' &&
@@ -686,19 +688,32 @@ function alternarListaPedidos(){
   atualizarEstadoListaPedidos();
 }
 
+// A sequência do roteirizador é imutável durante a entrega.
+// Se o CSV não tiver ORDEM DE ENTREGA, conserva a ordem original do arquivo.
+function itensDaRotaOrdenados(placa){
+  return dados.filter(x=>x.rota===placa).sort((a,b)=>{
+    const ao=Number.isInteger(a.ordem)&&a.ordem>0?a.ordem:Number.MAX_SAFE_INTEGER;
+    const bo=Number.isInteger(b.ordem)&&b.ordem>0?b.ordem:Number.MAX_SAFE_INTEGER;
+    return ao-bo;
+  });
+}
+function numeroParada(p,i){
+  return Number.isInteger(p.ordem)&&p.ordem>0?p.ordem:i+1;
+}
+
 function renderPedidos(placa){
   const box=document.getElementById('pedidos');
   if(!placa){box.style.display='none';box.innerHTML='';return;}
-  const itens=dados.filter(x=>x.rota===placa).sort((a,b)=>Number(Boolean(atendimentoCliente(b.cliente)))-Number(Boolean(atendimentoCliente(a.cliente))));
+  const itens=itensDaRotaOrdenados(placa);
   box.innerHTML='<div class="pedidosCabecalho">'+
-    '<div class="pedidosTitulo">Pedidos da rota</div>'+
+    '<div class="pedidosTitulo">Pedidos da rota — sequência de atendimento</div>'+
     '<button type="button" class="togglePedidos" aria-expanded="'+String(!pedidosMinimizados)+'">'+(pedidosMinimizados?'MOSTRAR':'MINIMIZAR')+'</button>'+
     '</div>'+
     '<div class="pedidosConteudo">'+itens.map((p,i)=>{
     const st=getStatus(p);
     const prioridade=atendimentoCliente(p.cliente);
     return '<div class="pedidoItem'+(prioridade?' prioritario':'')+'" data-i="'+i+'" title="Clique para localizar no mapa">'+
-      '<div class="pedidoTopo"><span class="pedidoNum">Pedido '+esc(p.pedido)+' — '+esc(nomeFantasiaCliente(p.cliente))+'</span><span class="pedidoPeso">'+pesoNum(p.peso).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+' kg</span></div>'+
+      '<div class="pedidoTopo"><span class="pedidoNum">'+esc(numeroParada(p,i))+'ª entrega • Pedido '+esc(p.pedido)+' — '+esc(nomeFantasiaCliente(p.cliente))+'</span><span class="pedidoPeso">'+pesoNum(p.peso).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+' kg</span></div>'+
       '<div>Cliente: '+esc(p.cliente)+' • '+esc(p.cidade)+'</div>'+
       (prioridade?'<div class="prioridadeDetalhes">'+detalhesAtendimento(prioridade)+'</div>':'')+
       '<div class="statusBtns">'+
@@ -729,7 +744,7 @@ function renderMapa(placa){
   layer.clearLayers();
   marcadoresPorPedido.clear();
   if(!placa)return;
-  const itens=dados.filter(x=>x.rota===placa);
+  const itens=itensDaRotaOrdenados(placa);
   const bounds=[];
   const usadosPorCoordenada=new Map();
 
@@ -737,7 +752,7 @@ function renderMapa(placa){
     const st=getStatus(p);
     const prioridade=atendimentoCliente(p.cliente);
     const cor=st==='atendido'?'#148a2a':(prioridade?'#1565c0':'#c00000');
-    const icon=L.divIcon({className:'',html:'<div class="num" style="background:'+cor+'">'+esc(p.pedido)+'</div>',iconSize:[52,34],iconAnchor:[26,17]});
+    const icon=L.divIcon({className:'',html:'<div class="num" style="background:'+cor+'">'+esc(numeroParada(p,i))+'</div>',iconSize:[52,34],iconAnchor:[26,17]});
     const gps=p.gps || ('https://www.google.com/maps?q='+p.lat+','+p.lon);
 
     // Se mais de um pedido tiver exatamente a mesma localização,
@@ -758,6 +773,7 @@ function renderMapa(placa){
     const popup='<div class="popup">'+
       '<b>Cliente:</b> '+esc(nomeFantasiaCliente(p.cliente))+'<br>'+
       '<b>Código do cliente:</b> '+esc(p.cliente)+'<br>'+
+      '<b>Ordem de entrega:</b> '+esc(numeroParada(p,i))+'<br>'+
       '<b>Pedido:</b> '+esc(p.pedido)+'<br>'+
       '<b>Peso:</b> '+esc(p.peso)+' kg<br>'+
       (prioridade?'<div class="prioridadeDetalhes">'+detalhesAtendimento(prioridade)+'</div>':'')+
@@ -840,8 +856,8 @@ document.addEventListener('DOMContentLoaded',function(){
   const barra=document.getElementById('downloadBarra');
   const texto=document.getElementById('downloadTexto');
   const ultima=document.getElementById('downloadUltimaAtualizacao');
-  const CHAVE='tgrUltimaAtualizacaoOfflineV4';
-  const CACHE='tgr-rota-offline-v4';
+  const CHAVE='tgrUltimaAtualizacaoOfflineV5Sequencia';
+  const CACHE='tgr-rota-offline-v6-ordem-clientes';
   const LOCAIS=['./','./index.html','./rotas.csv','./pix.csv','./Base de Clientes.xlsx'];
   const EXTERNOS=[
     'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
@@ -894,7 +910,7 @@ document.addEventListener('DOMContentLoaded',function(){
     b.disabled=true;b.classList.remove('pronto','falha');b.classList.add('baixando');b.textContent='BAIXANDO DADOS...';
     if(box)box.style.display='block'; if(barra)barra.style.width='2%';
     try{
-      if('serviceWorker' in navigator){await navigator.serviceWorker.register('./sw.js?v=4');await navigator.serviceWorker.ready;}
+      if('serviceWorker' in navigator){await navigator.serviceWorker.register('./sw.js?v=6');await navigator.serviceWorker.ready;}
       const cache=await caches.open(CACHE);
       await guardar(cache,'./index.html','aplicativo',8);
       await guardar(cache,'./rotas.csv','rotas',18);
