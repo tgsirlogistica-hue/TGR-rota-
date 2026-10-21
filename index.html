@@ -545,6 +545,18 @@ async function iniciarMapaTGR(){
   }
 }
 iniciarMapaTGR();
+// Marco fixo da base de distribuição, independente da placa selecionada.
+// Coordenadas utilizadas pelo Roteirizador TGR como ponto inicial das rotas.
+const TGR_BASE=[-11.295711077746027,-41.85273933886302];
+const iconeInicioTGR=L.divIcon({
+  className:'',
+  html:'<div style="display:flex;align-items:center;justify-content:center;gap:5px;background:#111827;color:#fff;border:2px solid #fff;border-radius:20px;padding:6px 10px;box-shadow:0 2px 9px #0007;font:bold 12px Arial,sans-serif;white-space:nowrap;">' +
+       '<span style="font-size:17px">🏁</span><span>INÍCIO · TGR</span></div>',
+  iconSize:[125,35],iconAnchor:[62,35],popupAnchor:[0,-34]
+});
+const marcadorInicioTGR=L.marker(TGR_BASE,{icon:iconeInicioTGR,zIndexOffset:1000})
+  .bindPopup('<b>Início da rota</b><br>TGR Bebidas Irecê<br>Base de distribuição')
+  .addTo(map);
 let layer=L.layerGroup().addTo(map);
 let marcadoresPorPedido=new Map();
 let pedidosMinimizados=true;
