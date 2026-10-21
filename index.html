@@ -187,6 +187,8 @@ if ('serviceWorker' in navigator) {
   <div style="display:none"><select id="placa"><option value="">Selecione a placa...</option></select></div>
   <div id="info" class="info"></div>
 <button id="trocarRota" type="button">VOLTAR</button>
+  <button id="mostrarTrajetoTGR" type="button" disabled style="margin:6px 0;padding:10px 14px;border:0;border-radius:9px;background:#1565c0;color:white;font-weight:bold;cursor:pointer">MOSTRAR TRAJETO</button>
+  <div id="trajetoStatusTGR" role="status" style="font-size:12px;max-width:340px;line-height:1.4;margin:3px 0 8px;color:#374151"></div>
   <div id="pedidos" class="pedidos"></div>
 </div>
 
@@ -561,6 +563,97 @@ let layer=L.layerGroup().addTo(map);
 let marcadoresPorPedido=new Map();
 let pedidosMinimizados=true;
 
+// Trajeto viário: preserva a sequência do CSV, sem reordenar entregas.
+// O OSRM público precisa de internet na primeira consulta. A geometria
+// pode ser reutilizada offline depois de calculada e armazenada localmente.
+const botaoTrajetoTGR=document.getElementById('mostrarTrajetoTGR');
+const statusTrajetoTGR=document.getElementById('trajetoStatusTGR');
+let linhaTrajetoTGR=null;
+let trajetoVisivelTGR=false;
+let requisicaoTrajetoTGR=0;
+function mensagemTrajetoTGR(msg){statusTrajetoTGR.textContent=msg;}
+function pontosTrajetoTGR(placa){
+  const itens=itensDaRotaOrdenados(placa).filter(p=>Number.isFinite(p.lat)&&Number.isFinite(p.lon));
+  const pontos=[TGR_BASE];
+  for(const p of itens){
+    const ultimo=pontos[pontos.length-1];
+    if(Math.abs(ultimo[0]-p.lat)>0.000001||Math.abs(ultimo[1]-p.lon)>0.000001)
+      pontos.push([p.lat,p.lon]);
+  }
+  return pontos;
+}
+function chaveTrajetoTGR(placa,pontos){
+  // Inclui coordenadas e ordem: CSV alterado não reaproveita rota antiga.
+  const texto=placa+'|'+pontos.map(p=>p.map(n=>n.toFixed(6)).join(',')).join(';');
+  let h=2166136261;
+  for(let i=0;i<texto.length;i++){h^=texto.charCodeAt(i);h=Math.imul(h,16777619);}
+  return 'trajetoTGR_v1_'+(h>>>0).toString(16)+'_'+pontos.length;
+}
+function ocultarTrajetoTGR(){
+  if(linhaTrajetoTGR){map.removeLayer(linhaTrajetoTGR);linhaTrajetoTGR=null;}
+  trajetoVisivelTGR=false;
+  botaoTrajetoTGR.textContent='MOSTRAR TRAJETO';
+}
+function reiniciarTrajetoTGR(){
+  requisicaoTrajetoTGR++;
+  ocultarTrajetoTGR();
+  botaoTrajetoTGR.disabled=!select.value;
+  mensagemTrajetoTGR('');
+}
+async function obterGeometriaTrajetoTGR(pontos,placa,token){
+  const chave=chaveTrajetoTGR(placa,pontos);
+  try{
+    const salvo=localStorage.getItem(chave);
+    if(salvo){const linhas=JSON.parse(salvo);if(Array.isArray(linhas)&&linhas.length>1)return {linhas,offline:true};}
+  }catch(e){console.warn('Cache do trajeto:',e);}
+  if(!navigator.onLine)throw new Error('Sem internet e sem trajeto salvo para esta sequência.');
+  // Divisão com sobreposição do último ponto, para suportar rotas longas.
+  const linhas=[];
+  for(let inicio=0;inicio<pontos.length-1;inicio+=19){
+    if(token!==requisicaoTrajetoTGR)throw new Error('Consulta cancelada.');
+    const parte=pontos.slice(inicio,Math.min(inicio+20,pontos.length));
+    const coords=parte.map(p=>p[1]+','+p[0]).join(';');
+    mensagemTrajetoTGR('Calculando ruas: trecho '+(Math.floor(inicio/19)+1)+' de '+Math.ceil((pontos.length-1)/19)+'...');
+    const controlador=new AbortController();
+    const limite=setTimeout(()=>controlador.abort(),18000);
+    let resposta;
+    try{
+      resposta=await fetch('https://router.project-osrm.org/route/v1/driving/'+coords+'?overview=full&geometries=geojson&steps=false',{signal:controlador.signal});
+    }finally{clearTimeout(limite);}
+    if(!resposta.ok)throw new Error('Serviço de rotas indisponível (HTTP '+resposta.status+').');
+    const json=await resposta.json();
+    if(json.code!=='Ok'||!json.routes?.[0]?.geometry?.coordinates)throw new Error('Não foi possível calcular um dos trechos pelas ruas.');
+    const segmento=json.routes[0].geometry.coordinates.map(p=>[p[1],p[0]]);
+    linhas.push(...(linhas.length?segmento.slice(1):segmento));
+  }
+  if(token!==requisicaoTrajetoTGR)throw new Error('Consulta cancelada.');
+  try{localStorage.setItem(chave,JSON.stringify(linhas));}catch(e){console.warn('Sem espaço para guardar trajeto offline:',e);}
+  return {linhas,offline:false};
+}
+async function alternarTrajetoTGR(){
+  if(trajetoVisivelTGR){ocultarTrajetoTGR();mensagemTrajetoTGR('Trajeto oculto.');return;}
+  const placa=select.value;
+  if(!placa)return;
+  const pontos=pontosTrajetoTGR(placa);
+  if(pontos.length<2){mensagemTrajetoTGR('Esta placa não possui entregas com coordenadas válidas.');return;}
+  const token=++requisicaoTrajetoTGR;
+  botaoTrajetoTGR.disabled=true;
+  mensagemTrajetoTGR('Preparando trajeto pelas ruas...');
+  try{
+    const resultado=await obterGeometriaTrajetoTGR(pontos,placa,token);
+    if(token!==requisicaoTrajetoTGR||placa!==select.value)return;
+    linhaTrajetoTGR=L.polyline(resultado.linhas,{color:'#1565c0',weight:5,opacity:0.8,lineJoin:'round'}).addTo(map);
+    linhaTrajetoTGR.bringToBack();
+    trajetoVisivelTGR=true;
+    botaoTrajetoTGR.textContent='OCULTAR TRAJETO';
+    mensagemTrajetoTGR(resultado.offline?'Trajeto salvo carregado (disponível offline neste aparelho).':'Trajeto pelas ruas calculado. A sequência dos clientes foi preservada.');
+  }catch(e){
+    if(token===requisicaoTrajetoTGR)mensagemTrajetoTGR('Não foi possível mostrar o trajeto: '+e.message+' Tente novamente com internet.');
+  }finally{if(token===requisicaoTrajetoTGR)botaoTrajetoTGR.disabled=false;}
+}
+botaoTrajetoTGR.addEventListener('click',alternarTrajetoTGR);
+
+
 const select=document.getElementById('placa');
 
 map.on('click',()=>{
@@ -799,6 +892,7 @@ function renderMapa(placa){
 }
 
 select.addEventListener('change',()=>{
+  reiniciarTrajetoTGR();
   const placa=select.value;
   const info=document.getElementById('info');
   if(!placa){info.style.display='none';renderPedidos('');renderMapa('');return;}
