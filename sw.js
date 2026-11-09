@@ -1,7 +1,15 @@
-const CACHE='tgr-rota-offline-v4';
+const CACHE='tgr-rota-offline-v7';
 const PM='mapa_tgr_200km.pmtiles';
 
 self.addEventListener('install',event=>{
+  event.waitUntil((async()=>{
+    const cache=await caches.open(CACHE);
+    try{
+      const url=new URL('./index.html',self.registration.scope);
+      const resposta=await fetch(new Request(url.href,{cache:'reload'}));
+      if(resposta.ok)await cache.put(url.href,resposta);
+    }catch(e){console.warn('TGR: pré-cache do aplicativo indisponível',e);}
+  })());
   self.skipWaiting();
 });
 
@@ -63,7 +71,15 @@ self.addEventListener('fetch',event=>{
     event.respondWith((async()=>{
       const cache = await caches.open(CACHE);
       const canonical = new Request(new URL('./' + PM, self.registration.scope).href);
-      const saved = await cache.match(canonical, {ignoreSearch:true});
+      let saved = await cache.match(canonical, {ignoreSearch:true});
+      if(!saved){
+        for(const nome of await caches.keys()){
+          if(nome===CACHE || !nome.startsWith('tgr-rota-offline-'))continue;
+          const antigo = await caches.open(nome);
+          saved = await antigo.match(canonical, {ignoreSearch:true});
+          if(saved)break;
+        }
+      }
 
       if(saved){
         const range = request.headers.get('range');
