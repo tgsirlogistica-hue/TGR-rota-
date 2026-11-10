@@ -159,6 +159,7 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=7').catch(console.warn));
 }
 </script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
 </head>
 <body>
 <div id="telaInicial">
@@ -802,29 +803,34 @@ function tgrApi(payload){
   window.addEventListener('message',receive);document.body.appendChild(iframe);document.body.appendChild(form);form.submit();
  });
 }
+// Login operacional provisório: planilha XLSX pública no GitHub.
+const TGR_SENHAS_URL='https://raw.githubusercontent.com/tgsirlogistica-hue/TGR-rota-/main/SENHAS.xlsx';
 async function tgrLogin(senha){
- if(!navigator.onLine)throw new Error('É necessário internet para entrar no sistema.');
- const resposta=await tgrApi({acao:'login',senha,requisicao:tgrAtendId()});
- tgrUsuario=resposta.usuario;tgrToken=resposta.token;
- // Sessão apenas na aba atual; não guardar a senha.
- sessionStorage.setItem('tgr_sessao_v1',JSON.stringify({usuario:tgrUsuario,token:tgrToken}));
- return resposta;
+  if(!navigator.onLine)throw new Error('Conecte-se à internet para validar a senha.');
+  if(typeof XLSX==='undefined')throw new Error('Leitor de Excel indisponível. Verifique sua conexão e recarregue a página.');
+  const r=await fetch(TGR_SENHAS_URL+'?v='+Date.now(),{cache:'no-store'});
+  if(!r.ok)throw new Error('Não foi possível ler SENHAS.xlsx do GitHub (HTTP '+r.status+').');
+  const wb=XLSX.read(await r.arrayBuffer(),{type:'array'});
+  const ws=wb.Sheets[wb.SheetNames[0]];
+  if(!ws)throw new Error('Planilha de usuários vazia.');
+  const usuarios=XLSX.utils.sheet_to_json(ws,{defval:'',raw:false});
+  const encontrados=usuarios.filter(x=>String(x.SENHA??'').trim()===String(senha).trim() && String(x.ATIVO??'').trim().toUpperCase()==='SIM');
+  if(encontrados.length!==1)throw new Error(encontrados.length?'Senha cadastrada para mais de um usuário. Corrija a planilha.':'Senha inválida ou usuário inativo.');
+  tgrUsuario=String(encontrados[0].LOGIN??'').trim();
+  if(!tgrUsuario)throw new Error('Cadastro sem nome de usuário.');
+  // Marcador de sessão local; NÃO é token de autenticação de servidor.
+  tgrToken='LOGIN_LOCAL';
+  sessionStorage.setItem('tgr_sessao_v1',JSON.stringify({usuario:tgrUsuario,token:tgrToken}));
+  return {usuario:tgrUsuario};
 }
 function tgrCapturarGPS(){return new Promise((resolve,reject)=>{
  if(!navigator.geolocation)return reject(new Error('GPS indisponível neste dispositivo.'));
  navigator.geolocation.getCurrentPosition(p=>resolve(p.coords),e=>reject(new Error(e.code===1?'Permissão de localização negada.':e.code===2?'Não foi possível determinar a localização.':'Tempo esgotado ao obter localização.')),{enableHighAccuracy:true,timeout:10000,maximumAge:5000});
 });}
-async function tgrAtendSincronizar(){
- if(tgrAtendEnviando||!navigator.onLine||!tgrToken)return;
- tgrAtendEnviando=true;
- try{while(navigator.onLine){const fila=tgrAtendFila();if(!fila.length)break;
-  const atual=fila[0];const res=await tgrApi({...atual,acao:'atendimento',token:tgrToken,requisicao:tgrAtendId()});
-  if(!res.ok)throw new Error(res.erro||'Falha no registro');
-  tgrAtendSalvar(tgrAtendFila().filter(x=>x.idRegistro!==atual.idRegistro));
- }}catch(err){console.warn('Atendimento aguardando sincronização:',err.message);
-  if(/sessão|sessao|expirad|autorizad/i.test(err.message)){tgrToken=null;sessionStorage.removeItem('tgr_sessao_v1');}
- }finally{tgrAtendEnviando=false;}
-}
+// O Apps Script antigo exige token emitido pelo servidor. Login local não gera esse token.
+// Não enviar registros com credenciais falsas nem afirmar sincronização.
+async function tgrAtendSincronizar(){return;}
+
 async function alternarStatus(p){
  if(!tgrToken){alert('Faça login para registrar atendimentos.');return;}
  const anterior=getStatus(p);
@@ -836,11 +842,11 @@ async function alternarStatus(p){
  // Captura apenas ao confirmar; não usa coordenadas do cliente como se fossem do motorista.
  let gps;try{gps=await tgrCapturarGPS();}catch(err){alert(err.message+'\nAtendimento não confirmado. Ative a localização e tente novamente.');return;}
  const registro={idRegistro:tgrAtendId(),clienteCodigo:p.cliente,clienteNome:nomeFantasiaCliente(p.cliente),pedido:p.pedido,
-  rota:p.rota,placa:select.value,status:'ATENDIDO',latitude:gps.latitude,longitude:gps.longitude,
+  rota:p.rota,placa:select.value,motorista:tgrUsuario,status:'ATENDIDO',latitude:gps.latitude,longitude:gps.longitude,
   precisaoMetros:gps.accuracy,dataHoraDispositivo:new Date().toISOString(),observacao:'',origem:'TGR Rota'};
  try{const fila=tgrAtendFila();fila.push(registro);tgrAtendSalvar(fila);}catch(_){alert('Não foi possível salvar neste dispositivo.');return;}
  localStorage.setItem(chaveStatus(p),'atendido');renderPedidos(select.value);renderMapa(select.value);
- if(!navigator.onLine)alert('Atendimento salvo neste dispositivo. Aguardando internet para sincronizar.');
+ alert('Atendimento salvo neste dispositivo em nome de '+tgrUsuario+'. O envio ao relatório central ainda precisa ser configurado.');
  tgrAtendSincronizar();
 }
 window.addEventListener('online',tgrAtendSincronizar);
