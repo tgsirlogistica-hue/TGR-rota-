@@ -171,6 +171,9 @@ if ('serviceWorker' in navigator) {
     </select>
     <label for="senhaAcessoTGR" style="display:block;text-align:left;font-size:13px;font-weight:bold;margin-top:14px">Senha de acesso</label>
     <input id="senhaAcessoTGR" type="password" autocomplete="current-password" placeholder="Digite sua senha" style="box-sizing:border-box;width:100%;padding:12px;margin-top:6px;border:1px solid #bbb;border-radius:8px;font-size:16px">
+    <label for="mostrarSenhaTGR" style="display:flex;align-items:center;justify-content:flex-start;gap:8px;margin-top:10px;font-size:13px;color:#444;cursor:pointer;text-align:left">
+      <input id="mostrarSenhaTGR" type="checkbox" style="width:17px;height:17px;margin:0;accent-color:#c00000"> Mostrar senha
+    </label>
     <div id="mensagemLoginTGR" role="status" style="margin-top:8px;font-size:12px;color:#b00000;min-height:15px"></div>
     <button id="entrarRota" disabled>ENTRAR NO SISTEMA</button>
 <button id="atualizarSistemaTeste" class="atualizarSistemaTeste" type="button">BAIXAR / ATUALIZAR DADOS OFFLINE</button>
@@ -776,6 +779,10 @@ function tgrAtendSalvar(f){localStorage.setItem(TGR_ATEND_FILA,JSON.stringify(f)
 function tgrAtendId(){return crypto.randomUUID?crypto.randomUUID():('tgr_'+Date.now()+'_'+Math.random().toString(36).slice(2));}
 function tgrAviso(msg,cor){const el=document.getElementById('mensagemLoginTGR');if(el){el.textContent=msg;el.style.color=cor||'#b00000';}}
 // Form POST + iframe para comunicar com Apps Script sem depender de CORS do ContentService.
+document.getElementById('mostrarSenhaTGR').addEventListener('change',function(){
+ const campo=document.getElementById('senhaAcessoTGR');
+ campo.type=this.checked?'text':'password';
+});
 function tgrApi(payload){
  return new Promise((resolve,reject)=>{
   const iframe=document.createElement('iframe');iframe.name='tgr_api_'+Math.random().toString(36).slice(2);
