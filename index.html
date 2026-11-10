@@ -169,7 +169,10 @@ if ('serviceWorker' in navigator) {
     <select id="placaInicial">
       <option value="">Selecione a placa...</option>
     </select>
-    <button id="entrarRota" disabled>ABRIR ROTA</button>
+    <label for="senhaAcessoTGR" style="display:block;text-align:left;font-size:13px;font-weight:bold;margin-top:14px">Senha de acesso</label>
+    <input id="senhaAcessoTGR" type="password" autocomplete="current-password" placeholder="Digite sua senha" style="box-sizing:border-box;width:100%;padding:12px;margin-top:6px;border:1px solid #bbb;border-radius:8px;font-size:16px">
+    <div id="mensagemLoginTGR" role="status" style="margin-top:8px;font-size:12px;color:#b00000;min-height:15px"></div>
+    <button id="entrarRota" disabled>ENTRAR NO SISTEMA</button>
 <button id="atualizarSistemaTeste" class="atualizarSistemaTeste" type="button">BAIXAR / ATUALIZAR DADOS OFFLINE</button>
 <div class="downloadInfoTGR">
   <div class="downloadInfoTitulo">Atualização do sistema</div>
@@ -764,98 +767,79 @@ function focarPedido(p){
     map.setView([p.lat,p.lon],17,{animate:true});
   }
 }
-// ===== REGISTRO DE ATENDIMENTO — GOOGLE PLANILHAS =====
-const TGR_ATEND_URL = 'https://script.google.com/macros/s/AKfycbzJQvbFk2a4nQfE_v_-atHoNDQCpiovzGXzhwoKHWcrPXFFOHd-1IHEmAA8UNWgvQji/exec';
-// SOMENTE TESTES: uma chave no HTML público pode ser copiada por qualquer pessoa.
-// Não utilize esta integração com dados reais antes de implantar autenticação segura.
-const TGR_ATEND_CHAVE = 'CONFIGURAR_CHAVE_DE_TESTE';
-const TGR_ATEND_FILA = 'tgr_atendimentos_fila_v1';
-let tgrAtendEnviando = false;
+// ===== AUTENTICAÇÃO E REGISTRO DE ATENDIMENTOS =====
+const TGR_ATEND_URL='https://script.google.com/macros/s/AKfycbzJQvbFk2a4nQfE_v_-atHoNDQCpiovzGXzhwoKHWcrPXFFOHd-1IHEmAA8UNWgvQji/exec';
+const TGR_ATEND_FILA='tgr_atendimentos_fila_v2';
+let tgrUsuario=null,tgrToken=null,tgrAtendEnviando=false;
 function tgrAtendFila(){try{return JSON.parse(localStorage.getItem(TGR_ATEND_FILA)||'[]')}catch(_){return []}}
 function tgrAtendSalvar(f){localStorage.setItem(TGR_ATEND_FILA,JSON.stringify(f));}
-function tgrAtendId(){return (crypto.randomUUID?crypto.randomUUID():('tgr_'+Date.now()+'_'+Math.random().toString(36).slice(2)));}
-function tgrCapturarGPS(){
-  return new Promise((resolve,reject)=>{
-    if(!navigator.geolocation)return reject(new Error('GPS indisponível neste dispositivo.'));
-    navigator.geolocation.getCurrentPosition(pos=>resolve(pos.coords),err=>reject(new Error(
-      err.code===1?'Permissão de localização negada.':err.code===2?'Não foi possível determinar a localização.':'Tempo esgotado ao obter localização.'
-    )),{enableHighAccuracy:true,timeout:18000,maximumAge:0});
-  });
+function tgrAtendId(){return crypto.randomUUID?crypto.randomUUID():('tgr_'+Date.now()+'_'+Math.random().toString(36).slice(2));}
+function tgrAviso(msg,cor){const el=document.getElementById('mensagemLoginTGR');if(el){el.textContent=msg;el.style.color=cor||'#b00000';}}
+// Form POST + iframe para comunicar com Apps Script sem depender de CORS do ContentService.
+function tgrApi(payload){
+ return new Promise((resolve,reject)=>{
+  const iframe=document.createElement('iframe');iframe.name='tgr_api_'+Math.random().toString(36).slice(2);
+  iframe.style.display='none';iframe.setAttribute('aria-hidden','true');
+  const form=document.createElement('form');form.method='POST';form.action=TGR_ATEND_URL;form.target=iframe.name;form.style.display='none';
+  const input=document.createElement('input');input.type='hidden';input.name='payload';input.value=JSON.stringify(payload);form.appendChild(input);
+  let done=false;
+  const timer=setTimeout(()=>finish(new Error('Sem resposta do servidor. Confira sua conexão.')),30000);
+  function finish(err,data){if(done)return;done=true;clearTimeout(timer);window.removeEventListener('message',receive);form.remove();iframe.remove();err?reject(err):resolve(data);}
+  function receive(event){
+   if(event.source!==iframe.contentWindow)return;
+   // Respostas somente do domínio do Google Apps Script/HTML Service.
+   if(!/^https:\/\/(?:script\.google\.com|[a-z0-9.-]+\.googleusercontent\.com)$/.test(event.origin))return;
+   const d=event.data;if(!d||d.tipo!=='TGR_API_RESPOSTA'||d.requisicao!==payload.requisicao)return;
+   d.ok?finish(null,d):finish(new Error(d.erro||'Operação recusada.'));
+  }
+  window.addEventListener('message',receive);document.body.appendChild(iframe);document.body.appendChild(form);form.submit();
+ });
 }
-function tgrAtendPost(payload){
-  return new Promise((resolve,reject)=>{
-    const iframe=document.createElement('iframe');
-    iframe.name='tgr_atend_'+Math.random().toString(36).slice(2);
-    iframe.style.display='none';
-    iframe.setAttribute('aria-hidden','true');
-    const form=document.createElement('form');
-    form.method='POST';form.action=TGR_ATEND_URL;form.target=iframe.name;
-    form.style.display='none';
-    const field=document.createElement('input');field.type='hidden';field.name='payload';field.value=JSON.stringify(payload);
-    form.appendChild(field);
-    let done=false;
-    const timeout=setTimeout(()=>finish(new Error('Sem confirmação do servidor. Registro mantido na fila.')),30000);
-    function finish(error,result){
-      if(done)return;done=true;clearTimeout(timeout);
-      window.removeEventListener('message',receive);form.remove();iframe.remove();
-      error?reject(error):resolve(result);
-    }
-    function receive(event){
-      if(event.source!==iframe.contentWindow)return;
-      const d=event.data;
-      if(!d||d.tipo!=='TGR_ATEND_RESPOSTA'||d.idRegistro!==payload.idRegistro)return;
-      d.ok?finish(null,d):finish(new Error(d.erro||'Registro rejeitado pelo servidor.'));
-    }
-    window.addEventListener('message',receive);
-    document.body.appendChild(iframe);document.body.appendChild(form);form.submit();
-  });
+async function tgrLogin(senha){
+ if(!navigator.onLine)throw new Error('É necessário internet para entrar no sistema.');
+ const resposta=await tgrApi({acao:'login',senha,requisicao:tgrAtendId()});
+ tgrUsuario=resposta.usuario;tgrToken=resposta.token;
+ // Sessão apenas na aba atual; não guardar a senha.
+ sessionStorage.setItem('tgr_sessao_v1',JSON.stringify({usuario:tgrUsuario,token:tgrToken}));
+ return resposta;
 }
+function tgrCapturarGPS(){return new Promise((resolve,reject)=>{
+ if(!navigator.geolocation)return reject(new Error('GPS indisponível neste dispositivo.'));
+ navigator.geolocation.getCurrentPosition(p=>resolve(p.coords),e=>reject(new Error(e.code===1?'Permissão de localização negada.':e.code===2?'Não foi possível determinar a localização.':'Tempo esgotado ao obter localização.')),{enableHighAccuracy:true,timeout:10000,maximumAge:5000});
+});}
 async function tgrAtendSincronizar(){
-  if(tgrAtendEnviando||!navigator.onLine||TGR_ATEND_CHAVE==='CONFIGURAR_CHAVE_DE_TESTE')return;
-  tgrAtendEnviando=true;
-  try{
-    while(navigator.onLine){
-      const fila=tgrAtendFila();if(!fila.length)break;
-      const atual=fila[0];
-      await tgrAtendPost({...atual,chave:TGR_ATEND_CHAVE});
-      tgrAtendSalvar(tgrAtendFila().filter(x=>x.idRegistro!==atual.idRegistro));
-    }
-  }catch(err){console.warn('Atendimento aguardando sincronização:',err.message)}
-  finally{tgrAtendEnviando=false;}
+ if(tgrAtendEnviando||!navigator.onLine||!tgrToken)return;
+ tgrAtendEnviando=true;
+ try{while(navigator.onLine){const fila=tgrAtendFila();if(!fila.length)break;
+  const atual=fila[0];const res=await tgrApi({...atual,acao:'atendimento',token:tgrToken,requisicao:tgrAtendId()});
+  if(!res.ok)throw new Error(res.erro||'Falha no registro');
+  tgrAtendSalvar(tgrAtendFila().filter(x=>x.idRegistro!==atual.idRegistro));
+ }}catch(err){console.warn('Atendimento aguardando sincronização:',err.message);
+  if(/sessão|sessao|expirad|autorizad/i.test(err.message)){tgrToken=null;sessionStorage.removeItem('tgr_sessao_v1');}
+ }finally{tgrAtendEnviando=false;}
 }
 async function alternarStatus(p){
-  const anterior=getStatus(p);
-  if(anterior==='atendido'){
-    if(!confirm('Voltar este pedido para Pendente? O registro anterior permanecerá no histórico.'))return;
-    localStorage.setItem(chaveStatus(p),'pendente');
-    renderPedidos(select.value);renderMapa(select.value);return;
-  }
-  // Só registra ATENDIDO após obter localização atual, sem usar GPS do endereço do cliente.
-  let gps;
-  try{gps=await tgrCapturarGPS();}
-  catch(err){alert(err.message+'\nAtendimento não confirmado. Ative a localização e tente novamente.');return;}
-  if(!confirm('Confirmar atendimento do pedido '+p.pedido+'?\nGPS obtido com precisão aproximada de '+Math.round(gps.accuracy)+' metros.'))return;
-  const registro={
-    idRegistro:tgrAtendId(),clienteCodigo:p.cliente,clienteNome:nomeFantasiaCliente(p.cliente),
-    pedido:p.pedido,rota:p.rota,placa:p.rota,motorista:p.motorista||'',
-    status:'ATENDIDO',latitude:gps.latitude,longitude:gps.longitude,
-    precisaoMetros:gps.accuracy,dataHoraDispositivo:new Date().toISOString(),
-    observacao:'',origem:'TGR Rota'
-  };
-  try{
-    const fila=tgrAtendFila();fila.push(registro);tgrAtendSalvar(fila);
-  }catch(err){alert('Não foi possível guardar o registro neste dispositivo. Atendimento não confirmado.');return;}
-  localStorage.setItem(chaveStatus(p),'atendido');
-  renderPedidos(select.value);renderMapa(select.value);
-  if(TGR_ATEND_CHAVE==='CONFIGURAR_CHAVE_DE_TESTE'){
-    alert('Atendimento guardado apenas neste dispositivo. Configure a chave de teste para enviar à planilha.');
-  }else if(!navigator.onLine){alert('Atendimento salvo neste dispositivo. Será enviado quando a internet voltar.');}
-  tgrAtendSincronizar();
+ if(!tgrToken){alert('Faça login para registrar atendimentos.');return;}
+ const anterior=getStatus(p);
+ if(anterior==='atendido'){
+  if(!confirm('Voltar este pedido para Pendente? O registro anterior permanecerá no histórico.'))return;
+  localStorage.setItem(chaveStatus(p),'pendente');renderPedidos(select.value);renderMapa(select.value);return;
+ }
+ if(!confirm('Confirmar atendimento do pedido '+p.pedido+'?'))return;
+ // Captura apenas ao confirmar; não usa coordenadas do cliente como se fossem do motorista.
+ let gps;try{gps=await tgrCapturarGPS();}catch(err){alert(err.message+'\nAtendimento não confirmado. Ative a localização e tente novamente.');return;}
+ const registro={idRegistro:tgrAtendId(),clienteCodigo:p.cliente,clienteNome:nomeFantasiaCliente(p.cliente),pedido:p.pedido,
+  rota:p.rota,placa:select.value,status:'ATENDIDO',latitude:gps.latitude,longitude:gps.longitude,
+  precisaoMetros:gps.accuracy,dataHoraDispositivo:new Date().toISOString(),observacao:'',origem:'TGR Rota'};
+ try{const fila=tgrAtendFila();fila.push(registro);tgrAtendSalvar(fila);}catch(_){alert('Não foi possível salvar neste dispositivo.');return;}
+ localStorage.setItem(chaveStatus(p),'atendido');renderPedidos(select.value);renderMapa(select.value);
+ if(!navigator.onLine)alert('Atendimento salvo neste dispositivo. Aguardando internet para sincronizar.');
+ tgrAtendSincronizar();
 }
 window.addEventListener('online',tgrAtendSincronizar);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)tgrAtendSincronizar();});
 setInterval(tgrAtendSincronizar,45000);
-// ===== FIM REGISTRO DE ATENDIMENTO =====
+// ===== FIM AUTENTICAÇÃO E REGISTRO =====
 
 function abrirPagamento(p){
   const tela=document.getElementById('pixTela');
@@ -1087,20 +1071,31 @@ select.addEventListener('change',()=>{
     const tela=document.getElementById('telaInicial');
     if(!selectAtual || !selectInicial || !botao || !tela) return;
 
-botao.addEventListener('click',function(){
-      if(!selectInicial.value) return;
-      pedidosMinimizados=true;
-      selectAtual.value=selectInicial.value;
-      selectAtual.dispatchEvent(new Event('change',{bubbles:true}));
-      tela.style.display='none';
-      setTimeout(function(){ if(window.map) map.invalidateSize(); },100);
+botao.addEventListener('click',async function(){
+      const senha=document.getElementById('senhaAcessoTGR');
+      if(!selectInicial.value||!senha||!senha.value)return;
+      botao.disabled=true;botao.textContent='VALIDANDO ACESSO...';tgrAviso('Conferindo senha...','#555');
+      try{
+        const resposta=await tgrLogin(senha.value);senha.value='';
+        tgrAviso('Acesso autorizado: '+resposta.usuario,'#148a2a');
+        pedidosMinimizados=true;
+        selectAtual.value=selectInicial.value;
+        selectAtual.dispatchEvent(new Event('change',{bubbles:true}));
+        tela.style.display='none';
+        tgrAtendSincronizar();
+        setTimeout(function(){if(window.map)map.invalidateSize();},100);
+      }catch(err){tgrAviso(err.message);}
+      finally{botao.textContent='ENTRAR NO SISTEMA';botao.disabled=!selectInicial.value;}
     });
+    document.getElementById('senhaAcessoTGR')?.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();botao.click();}});
 
     const voltar=document.getElementById('trocarRota');
     if(voltar){
       voltar.addEventListener('click',function(){
         selectInicial.value='';
         botao.disabled=true;
+        tgrToken=null;tgrUsuario=null;sessionStorage.removeItem('tgr_sessao_v1');
+        tgrAviso('');
         tela.style.display='flex';
       });
     }
