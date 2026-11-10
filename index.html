@@ -676,7 +676,7 @@ function pesoNum(v){return Number(String(v??'0').replace(',','.'))||0;}
 
 // ===== INTEGRAÇÃO GOOGLE PLANILHAS (TGR) =====
 // Cole abaixo a URL da implantação do Apps Script terminada em /exec.
-const TGR_PLANILHA_URL = 'https://script.google.com/macros/s/AKfycbyQ21KlUOM10Qa25BneD2NLtXJp37ebEkMjYKrPSvJzWNnr-wGGu6VVAyKE7ZjE3GfJ/exec';
+const TGR_PLANILHA_URL = ''; // Integração antiga desativada; não enviar dados ao endereço anterior.
 const TGR_FILA_CHAVE = 'tgr_planilha_fila_v1';
 const TGR_DATA_CHAVE = 'tgr_data_programacao_v1';
 const TGR_ENVIADOS_CHAVE = 'tgr_planilha_importacao_v1';
@@ -764,13 +764,98 @@ function focarPedido(p){
     map.setView([p.lat,p.lon],17,{animate:true});
   }
 }
-function alternarStatus(p){
-  const novo=getStatus(p)==='atendido'?'pendente':'atendido';
-  localStorage.setItem(chaveStatus(p),novo);
-  tgrEnfileirar([tgrRegistro(p,novo)]);
-  renderPedidos(select.value);
-  renderMapa(select.value);
+// ===== REGISTRO DE ATENDIMENTO — GOOGLE PLANILHAS =====
+const TGR_ATEND_URL = 'https://script.google.com/macros/s/AKfycbzJQvbFk2a4nQfE_v_-atHoNDQCpiovzGXzhwoKHWcrPXFFOHd-1IHEmAA8UNWgvQji/exec';
+// SOMENTE TESTES: uma chave no HTML público pode ser copiada por qualquer pessoa.
+// Não utilize esta integração com dados reais antes de implantar autenticação segura.
+const TGR_ATEND_CHAVE = 'CONFIGURAR_CHAVE_DE_TESTE';
+const TGR_ATEND_FILA = 'tgr_atendimentos_fila_v1';
+let tgrAtendEnviando = false;
+function tgrAtendFila(){try{return JSON.parse(localStorage.getItem(TGR_ATEND_FILA)||'[]')}catch(_){return []}}
+function tgrAtendSalvar(f){localStorage.setItem(TGR_ATEND_FILA,JSON.stringify(f));}
+function tgrAtendId(){return (crypto.randomUUID?crypto.randomUUID():('tgr_'+Date.now()+'_'+Math.random().toString(36).slice(2)));}
+function tgrCapturarGPS(){
+  return new Promise((resolve,reject)=>{
+    if(!navigator.geolocation)return reject(new Error('GPS indisponível neste dispositivo.'));
+    navigator.geolocation.getCurrentPosition(pos=>resolve(pos.coords),err=>reject(new Error(
+      err.code===1?'Permissão de localização negada.':err.code===2?'Não foi possível determinar a localização.':'Tempo esgotado ao obter localização.'
+    )),{enableHighAccuracy:true,timeout:18000,maximumAge:0});
+  });
 }
+function tgrAtendPost(payload){
+  return new Promise((resolve,reject)=>{
+    const iframe=document.createElement('iframe');
+    iframe.name='tgr_atend_'+Math.random().toString(36).slice(2);
+    iframe.style.display='none';
+    iframe.setAttribute('aria-hidden','true');
+    const form=document.createElement('form');
+    form.method='POST';form.action=TGR_ATEND_URL;form.target=iframe.name;
+    form.style.display='none';
+    const field=document.createElement('input');field.type='hidden';field.name='payload';field.value=JSON.stringify(payload);
+    form.appendChild(field);
+    let done=false;
+    const timeout=setTimeout(()=>finish(new Error('Sem confirmação do servidor. Registro mantido na fila.')),30000);
+    function finish(error,result){
+      if(done)return;done=true;clearTimeout(timeout);
+      window.removeEventListener('message',receive);form.remove();iframe.remove();
+      error?reject(error):resolve(result);
+    }
+    function receive(event){
+      if(event.source!==iframe.contentWindow)return;
+      const d=event.data;
+      if(!d||d.tipo!=='TGR_ATEND_RESPOSTA'||d.idRegistro!==payload.idRegistro)return;
+      d.ok?finish(null,d):finish(new Error(d.erro||'Registro rejeitado pelo servidor.'));
+    }
+    window.addEventListener('message',receive);
+    document.body.appendChild(iframe);document.body.appendChild(form);form.submit();
+  });
+}
+async function tgrAtendSincronizar(){
+  if(tgrAtendEnviando||!navigator.onLine||TGR_ATEND_CHAVE==='CONFIGURAR_CHAVE_DE_TESTE')return;
+  tgrAtendEnviando=true;
+  try{
+    while(navigator.onLine){
+      const fila=tgrAtendFila();if(!fila.length)break;
+      const atual=fila[0];
+      await tgrAtendPost({...atual,chave:TGR_ATEND_CHAVE});
+      tgrAtendSalvar(tgrAtendFila().filter(x=>x.idRegistro!==atual.idRegistro));
+    }
+  }catch(err){console.warn('Atendimento aguardando sincronização:',err.message)}
+  finally{tgrAtendEnviando=false;}
+}
+async function alternarStatus(p){
+  const anterior=getStatus(p);
+  if(anterior==='atendido'){
+    if(!confirm('Voltar este pedido para Pendente? O registro anterior permanecerá no histórico.'))return;
+    localStorage.setItem(chaveStatus(p),'pendente');
+    renderPedidos(select.value);renderMapa(select.value);return;
+  }
+  // Só registra ATENDIDO após obter localização atual, sem usar GPS do endereço do cliente.
+  let gps;
+  try{gps=await tgrCapturarGPS();}
+  catch(err){alert(err.message+'\nAtendimento não confirmado. Ative a localização e tente novamente.');return;}
+  if(!confirm('Confirmar atendimento do pedido '+p.pedido+'?\nGPS obtido com precisão aproximada de '+Math.round(gps.accuracy)+' metros.'))return;
+  const registro={
+    idRegistro:tgrAtendId(),clienteCodigo:p.cliente,clienteNome:nomeFantasiaCliente(p.cliente),
+    pedido:p.pedido,rota:p.rota,placa:p.rota,motorista:p.motorista||'',
+    status:'ATENDIDO',latitude:gps.latitude,longitude:gps.longitude,
+    precisaoMetros:gps.accuracy,dataHoraDispositivo:new Date().toISOString(),
+    observacao:'',origem:'TGR Rota'
+  };
+  try{
+    const fila=tgrAtendFila();fila.push(registro);tgrAtendSalvar(fila);
+  }catch(err){alert('Não foi possível guardar o registro neste dispositivo. Atendimento não confirmado.');return;}
+  localStorage.setItem(chaveStatus(p),'atendido');
+  renderPedidos(select.value);renderMapa(select.value);
+  if(TGR_ATEND_CHAVE==='CONFIGURAR_CHAVE_DE_TESTE'){
+    alert('Atendimento guardado apenas neste dispositivo. Configure a chave de teste para enviar à planilha.');
+  }else if(!navigator.onLine){alert('Atendimento salvo neste dispositivo. Será enviado quando a internet voltar.');}
+  tgrAtendSincronizar();
+}
+window.addEventListener('online',tgrAtendSincronizar);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)tgrAtendSincronizar();});
+setInterval(tgrAtendSincronizar,45000);
+// ===== FIM REGISTRO DE ATENDIMENTO =====
 
 function abrirPagamento(p){
   const tela=document.getElementById('pixTela');
