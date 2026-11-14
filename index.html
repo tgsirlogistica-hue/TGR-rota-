@@ -227,6 +227,23 @@ if ('serviceWorker' in navigator) {
     <div id="pixConteudo"></div>
   </div>
 </div>
+<div class="tgrModal" id="tgrAtendimentoModal" role="dialog" aria-modal="true" aria-label="Opções do atendimento">
+ <div class="tgrModalCard">
+  <h3 id="tgrModalTitulo">Atendimento</h3>
+  <p id="tgrModalDescricao"></p>
+  <div id="tgrModalOpcoes">
+   <button type="button" id="tgrFinalizarBtn">Finalizar atendimento</button>
+   <button type="button" id="tgrDevolucaoBtn" class="devolucaoAcao">Devolução</button>
+   <button type="button" id="tgrRepasseBtn" class="repasseAcao">Repasse — retornar ao cliente</button>
+  </div>
+  <div id="tgrMotivoArea" style="display:none">
+   <label for="tgrMotivoTexto" style="font-size:13px;font-weight:bold">Motivo da devolução (obrigatório)</label>
+   <textarea id="tgrMotivoTexto" maxlength="1000" placeholder="Descreva o motivo da devolução"></textarea>
+   <button type="button" id="tgrConfirmarDevolucao" class="devolucaoAcao">Confirmar devolução</button>
+  </div>
+  <button type="button" id="tgrCancelarAtendimento" class="cancelarAcao">Voltar à rota</button>
+ </div>
+</div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/protomaps-leaflet@5.0.0/dist/protomaps-leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -1318,22 +1335,6 @@ document.addEventListener('DOMContentLoaded',function(){
 (function(){let wid=null,m=null,c=null,pos=null,primeira=true;const btn=document.getElementById('localizacaoBtn');function ico(){return L.divIcon({className:'',html:'<div class="localizacaoMotorista"></div>',iconSize:[24,24],iconAnchor:[12,12]});}function ok(p){const ll=[p.coords.latitude,p.coords.longitude],acc=Number(p.coords.accuracy)||0;pos=ll;if(!m){m=L.marker(ll,{icon:ico(),zIndexOffset:5000}).addTo(map);m.bindPopup('<div class="popup"><b>Sua localização</b><br>Precisão aproximada: '+Math.round(acc)+' m</div>');}else{m.setLatLng(ll);m.setPopupContent('<div class="popup"><b>Sua localização</b><br>Precisão aproximada: '+Math.round(acc)+' m</div>');}if(!c)c=L.circle(ll,{radius:acc,weight:1,opacity:.55,fillOpacity:.08}).addTo(map);else{c.setLatLng(ll);c.setRadius(acc);}btn.classList.remove('erro');btn.classList.add('ativo');btn.textContent='◎ MINHA LOCALIZAÇÃO';if(primeira){primeira=false;map.setView(ll,Math.max(map.getZoom(),16));}}function erro(e){console.warn(e);btn.classList.remove('ativo');btn.classList.add('erro');btn.textContent=e&&e.code===1?'LOCALIZAÇÃO BLOQUEADA':'GPS INDISPONÍVEL';}function iniciar(){if(!navigator.geolocation){erro({code:0});return;}if(wid!==null)return;btn.textContent='LOCALIZANDO...';wid=navigator.geolocation.watchPosition(ok,erro,{enableHighAccuracy:true,maximumAge:3000,timeout:20000});}btn.addEventListener('click',()=>{if(pos){map.setView(pos,Math.max(map.getZoom(),16));if(m)m.openPopup();}else iniciar();});iniciar();})();
 </script>
 
-<div class="tgrModal" id="tgrAtendimentoModal" role="dialog" aria-modal="true" aria-label="Opções do atendimento">
- <div class="tgrModalCard">
-  <h3 id="tgrModalTitulo">Atendimento</h3>
-  <p id="tgrModalDescricao"></p>
-  <div id="tgrModalOpcoes">
-   <button type="button" id="tgrFinalizarBtn">Finalizar atendimento</button>
-   <button type="button" id="tgrDevolucaoBtn" class="devolucaoAcao">Devolução</button>
-   <button type="button" id="tgrRepasseBtn" class="repasseAcao">Repasse — retornar ao cliente</button>
-  </div>
-  <div id="tgrMotivoArea" style="display:none">
-   <label for="tgrMotivoTexto" style="font-size:13px;font-weight:bold">Motivo da devolução (obrigatório)</label>
-   <textarea id="tgrMotivoTexto" maxlength="1000" placeholder="Descreva o motivo da devolução"></textarea>
-   <button type="button" id="tgrConfirmarDevolucao" class="devolucaoAcao">Confirmar devolução</button>
-  </div>
-  <button type="button" id="tgrCancelarAtendimento" class="cancelarAcao">Voltar à rota</button>
- </div>
-</div>
+
 </body>
 </html>
