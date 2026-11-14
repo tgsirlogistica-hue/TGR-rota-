@@ -802,7 +802,7 @@ setInterval(tgrSincronizar,60000);
 
 function chaveStatus(p){return 'statusPedidoTGR|'+p.rota+'|'+p.pedido+'|'+p.cliente;}
 const TGR_COMPARTILHADO_CHAVE='tgr_compartilhado_v1';
-let tgrCompartilhado=new Map(),tgrConsultando=false;
+let tgrCompartilhado=new Map(),tgrConsultando=false,tgrConsultaConfirmada=new Set();
 function tgrChaveCompartilhada(p){return [tgrDataProgramacao(),p.rota,p.pedido,p.cliente].join('|');}
 function tgrFilaTemPedido(p){return tgrAtendFila().some(x=>tgrChaveRegistro(x)===tgrChaveCompartilhada(p));}
 function tgrChaveRegistro(x){return [x.dataRota,x.rota,x.pedido,x.clienteCodigo].join('|');}
@@ -810,7 +810,9 @@ function getStatus(p){
  const local=localStorage.getItem(chaveStatus(p))||'pendente';
  if(tgrFilaTemPedido(p))return local;
  const remoto=tgrCompartilhado.get(tgrChaveCompartilhada(p));
- return remoto||local;
+ if(remoto)return remoto;
+ if(tgrConsultaConfirmada.has(tgrDataProgramacao()+'|'+p.rota))return 'pendente';
+ return local;
 }
 async function tgrConsultarCompartilhado(){
  if(tgrConsultando||!navigator.onLine||!tgrUsuario||!select.value)return;
@@ -818,6 +820,7 @@ async function tgrConsultarCompartilhado(){
  try{
   const r=await tgrApi({acao:'consultar_status',requisicao:tgrAtendId(),motorista:tgrUsuario,dataRota:tgrDataProgramacao(),rota:select.value});
   const presentes=new Set();
+  tgrConsultaConfirmada.add(tgrDataProgramacao()+'|'+select.value);
   for(const s of (r.estados||[])){
    const chave=[tgrDataProgramacao(),select.value,s.pedido,s.cliente].join('|');presentes.add(chave);
    const st={ATENDIDO:'atendido',DEVOLUCAO:'devolvido',REPASSE:'repasse',PENDENTE:'pendente'}[s.status]||'pendente';
@@ -826,6 +829,7 @@ async function tgrConsultarCompartilhado(){
    if(p&&!tgrFilaTemPedido(p))localStorage.setItem(chaveStatus(p),st);
   }
   for(const chave of [...tgrCompartilhado.keys()])if(chave.startsWith(tgrDataProgramacao()+'|'+select.value+'|')&&!presentes.has(chave))tgrCompartilhado.delete(chave);
+  for(const p of dados)if(p.rota===select.value&&!presentes.has(tgrChaveCompartilhada(p))&&!tgrFilaTemPedido(p))localStorage.setItem(chaveStatus(p),'pendente');
   tgrRedesenharAtendimento();
  }catch(e){console.warn('TGR: consulta compartilhada falhou:',e.message);}
  finally{tgrConsultando=false;}
