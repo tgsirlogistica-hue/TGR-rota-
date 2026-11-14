@@ -733,9 +733,9 @@ function tgrDataLocal(){
   const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 }
 function tgrDataProgramacao(){
-  // A programação é identificada pelo dia em que foi carregada. O GPS original
-  // não recebe uma coluna de data em rotas.csv.
-  return localStorage.getItem(TGR_DATA_CHAVE)||tgrDataLocal();
+  // rotas.csv não contém data: todos os aparelhos usam o mesmo dia civil local.
+  // Não usar a data persistida de uma sessão anterior, que varia por dispositivo.
+  return tgrDataLocal();
 }
 function tgrIntegracaoAtiva(){return /^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec/.test(TGR_PLANILHA_URL);}
 function tgrFila(){try{return JSON.parse(localStorage.getItem(TGR_FILA_CHAVE)||'[]')}catch(e){return []}}
@@ -791,7 +791,7 @@ function tgrImportarRotas(){
   const assinatura=data+'|'+dados.map(p=>[p.rota,p.pedido,p.cliente].join(':')).sort().join(';');
   // Não reimporta a mesma programação toda vez que o link é aberto.
   if(localStorage.getItem(TGR_ENVIADOS_CHAVE)===assinatura)return;
-  localStorage.setItem(TGR_DATA_CHAVE,data);
+  localStorage.setItem(TGR_DATA_CHAVE,data); // compatibilidade com dados antigos; não define mais a data da consulta
   localStorage.setItem(TGR_ENVIADOS_CHAVE,assinatura);
   tgrEnfileirar(dados.map(p=>tgrRegistro(p,getStatus(p))));
 }
@@ -820,6 +820,7 @@ async function tgrConsultarCompartilhado(){
  try{
   const r=await tgrApi({acao:'consultar_status',requisicao:tgrAtendId(),motorista:tgrUsuario,dataRota:tgrDataProgramacao(),rota:select.value});
   const presentes=new Set();
+  console.info('TGR sincronização: consulta confirmada', {data:tgrDataProgramacao(),rota:select.value,registros:(r.estados||[]).length});
   tgrConsultaConfirmada.add(tgrDataProgramacao()+'|'+select.value);
   for(const s of (r.estados||[])){
    const chave=[tgrDataProgramacao(),select.value,s.pedido,s.cliente].join('|');presentes.add(chave);
@@ -831,7 +832,7 @@ async function tgrConsultarCompartilhado(){
   for(const chave of [...tgrCompartilhado.keys()])if(chave.startsWith(tgrDataProgramacao()+'|'+select.value+'|')&&!presentes.has(chave))tgrCompartilhado.delete(chave);
   for(const p of dados)if(p.rota===select.value&&!presentes.has(tgrChaveCompartilhada(p))&&!tgrFilaTemPedido(p))localStorage.setItem(chaveStatus(p),'pendente');
   tgrRedesenharAtendimento();
- }catch(e){console.warn('TGR: consulta compartilhada falhou:',e.message);}
+ }catch(e){console.error('TGR: consulta compartilhada falhou:',e.message);}
  finally{tgrConsultando=false;}
 }
 
