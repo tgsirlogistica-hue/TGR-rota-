@@ -791,10 +791,11 @@ function tgrApi(payload){
   const form=document.createElement('form');form.method='POST';form.action=TGR_ATEND_URL;form.target=iframe.name;form.style.display='none';
   const input=document.createElement('input');input.type='hidden';input.name='payload';input.value=JSON.stringify(payload);form.appendChild(input);
   let done=false;
-  const timer=setTimeout(()=>finish(new Error('Sem resposta do servidor. Confira sua conexão.')),30000);
+  const timer=setTimeout(()=>finish(new Error('Sem confirmação do Google. Registro mantido na fila.')),30000);
   function finish(err,data){if(done)return;done=true;clearTimeout(timer);window.removeEventListener('message',receive);form.remove();iframe.remove();err?reject(err):resolve(data);}
   function receive(event){
-   if(event.source!==iframe.contentWindow)return;
+   // O HtmlService pode executar dentro de um iframe intermediário do Google.
+   // Conferimos origem Google + identificador aleatório da requisição, não apenas event.source.
    // Respostas somente do domínio do Google Apps Script/HTML Service.
    if(!/^https:\/\/(?:script\.google\.com|[a-z0-9.-]+\.googleusercontent\.com)$/.test(event.origin))return;
    const d=event.data;if(!d||d.tipo!=='TGR_API_RESPOSTA'||d.requisicao!==payload.requisicao)return;
@@ -821,6 +822,7 @@ async function tgrLogin(senha){
   // Marcador de sessão local; NÃO é token de autenticação de servidor.
   tgrToken='LOGIN_LOCAL';
   sessionStorage.setItem('tgr_sessao_v1',JSON.stringify({usuario:tgrUsuario,token:tgrToken}));
+  tgrAtendSincronizar();
   return {usuario:tgrUsuario};
 }
 function tgrCapturarGPS(){return new Promise((resolve,reject)=>{
@@ -829,7 +831,21 @@ function tgrCapturarGPS(){return new Promise((resolve,reject)=>{
 });}
 // O Apps Script antigo exige token emitido pelo servidor. Login local não gera esse token.
 // Não enviar registros com credenciais falsas nem afirmar sincronização.
-async function tgrAtendSincronizar(){return;}
+async function tgrAtendSincronizar(){
+ if(tgrAtendEnviando||!navigator.onLine)return;
+ tgrAtendEnviando=true;
+ try{
+  while(navigator.onLine){
+   const fila=tgrAtendFila();if(!fila.length)break;
+   const item=fila[0];
+   const resposta=await tgrApi({...item,acao:'atendimento_local',requisicao:tgrAtendId()});
+   if(!resposta.ok||resposta.idRegistro!==item.idRegistro)throw Error('Confirmação de registro inválida.');
+   tgrAtendSalvar(tgrAtendFila().filter(x=>x.idRegistro!==item.idRegistro));
+   console.info('TGR: atendimento confirmado na planilha',item.idRegistro);
+  }
+ }catch(e){console.warn('TGR: aguardando sincronização:',e.message);}
+ finally{tgrAtendEnviando=false;}
+}
 
 async function alternarStatus(p){
  if(!tgrToken){alert('Faça login para registrar atendimentos.');return;}
@@ -846,7 +862,7 @@ async function alternarStatus(p){
   precisaoMetros:gps.accuracy,dataHoraDispositivo:new Date().toISOString(),observacao:'',origem:'TGR Rota'};
  try{const fila=tgrAtendFila();fila.push(registro);tgrAtendSalvar(fila);}catch(_){alert('Não foi possível salvar neste dispositivo.');return;}
  localStorage.setItem(chaveStatus(p),'atendido');renderPedidos(select.value);renderMapa(select.value);
- alert('Atendimento salvo neste dispositivo em nome de '+tgrUsuario+'. O envio ao relatório central ainda precisa ser configurado.');
+ alert('Atendimento salvo em nome de '+tgrUsuario+'. O envio ao Google Planilhas será tentado agora; se não houver confirmação, ficará pendente de sincronização.');
  tgrAtendSincronizar();
 }
 window.addEventListener('online',tgrAtendSincronizar);
