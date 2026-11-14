@@ -252,6 +252,7 @@ if ('serviceWorker' in navigator) {
 let dados=[];
 let dadosPix=new Map();
 let dadosClientes=new Map();
+let cidadesPorCliente=new Map();
 let dadosAtendimento=new Map();
 
 function parseCSV(texto){
@@ -363,12 +364,16 @@ async function carregarBaseClientes(){
     const cab=linhas[0].map(normalizarCabecalho);
     const posCod=cab.indexOf('cod');
     const posFantasia=cab.indexOf('fantasia');
+    const posCidade=cab.indexOf('cidade')>=0?cab.indexOf('cidade'):4; // Coluna E no cadastro
     if(posCod<0 || posFantasia<0) throw new Error('Colunas cod/fantasia não encontradas.');
 
     dadosClientes.clear();
+    cidadesPorCliente.clear();
     linhas.slice(1).forEach(cols=>{
       const codigo=normalizarCodigoCliente(cols[posCod]);
       const fantasia=String(cols[posFantasia]??'').trim();
+      const cidade=String(cols[posCidade]??'').trim();
+      if(codigo && cidade && !cidadesPorCliente.has(codigo))cidadesPorCliente.set(codigo,cidade);
       if(codigo && fantasia && !dadosClientes.has(codigo)){
         dadosClientes.set(codigo,fantasia);
       }
@@ -485,7 +490,7 @@ async function carregarRotas(){
       peso:String(cols[pos.peso]??'').trim(),
       rota:String(cols[pos.rota]??'').trim(),
       motorista:String(cols[pos.motorista]??'').trim(),
-      cidade:String(cols[pos.cidade]??'').trim(),
+      cidade:String(cols[pos.cidade]??'').trim() || cidadesPorCliente.get(normalizarCodigoCliente(cols[pos.cliente])) || '',
       lat:Number(String(cols[pos.lat]??'').replace(',','.')),
       lon:Number(String(cols[pos.lon]??'').replace(',','.')),
       gps:String(cols[pos.gps]??'').trim(),
