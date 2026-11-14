@@ -801,7 +801,36 @@ setInterval(tgrSincronizar,60000);
 // ===== FIM INTEGRAÇÃO =====
 
 function chaveStatus(p){return 'statusPedidoTGR|'+p.rota+'|'+p.pedido+'|'+p.cliente;}
-function getStatus(p){return localStorage.getItem(chaveStatus(p)) || 'pendente';}
+const TGR_COMPARTILHADO_CHAVE='tgr_compartilhado_v1';
+let tgrCompartilhado=new Map(),tgrConsultando=false;
+function tgrChaveCompartilhada(p){return [tgrDataProgramacao(),p.rota,p.pedido,p.cliente].join('|');}
+function tgrFilaTemPedido(p){return tgrAtendFila().some(x=>tgrChaveRegistro(x)===tgrChaveCompartilhada(p));}
+function tgrChaveRegistro(x){return [x.dataRota,x.rota,x.pedido,x.clienteCodigo].join('|');}
+function getStatus(p){
+ const local=localStorage.getItem(chaveStatus(p))||'pendente';
+ if(tgrFilaTemPedido(p))return local;
+ const remoto=tgrCompartilhado.get(tgrChaveCompartilhada(p));
+ return remoto||local;
+}
+async function tgrConsultarCompartilhado(){
+ if(tgrConsultando||!navigator.onLine||!tgrUsuario||!select.value)return;
+ tgrConsultando=true;
+ try{
+  const r=await tgrApi({acao:'consultar_status',requisicao:tgrAtendId(),motorista:tgrUsuario,dataRota:tgrDataProgramacao(),rota:select.value});
+  const presentes=new Set();
+  for(const s of (r.estados||[])){
+   const chave=[tgrDataProgramacao(),select.value,s.pedido,s.cliente].join('|');presentes.add(chave);
+   const st={ATENDIDO:'atendido',DEVOLUCAO:'devolvido',REPASSE:'repasse',PENDENTE:'pendente'}[s.status]||'pendente';
+   tgrCompartilhado.set(chave,st);
+   const p=dados.find(x=>tgrChaveCompartilhada(x)===chave);
+   if(p&&!tgrFilaTemPedido(p))localStorage.setItem(chaveStatus(p),st);
+  }
+  for(const chave of [...tgrCompartilhado.keys()])if(chave.startsWith(tgrDataProgramacao()+'|'+select.value+'|')&&!presentes.has(chave))tgrCompartilhado.delete(chave);
+  tgrRedesenharAtendimento();
+ }catch(e){console.warn('TGR: consulta compartilhada falhou:',e.message);}
+ finally{tgrConsultando=false;}
+}
+
 function chaveMarcador(p){return p.rota+'|'+p.pedido+'|'+p.cliente;}
 function focarPedido(p){
   const marcador=marcadoresPorPedido.get(chaveMarcador(p));
@@ -864,6 +893,7 @@ async function tgrLogin(senha){
   tgrToken='LOGIN_LOCAL';
   sessionStorage.setItem('tgr_sessao_v1',JSON.stringify({usuario:tgrUsuario,token:tgrToken}));
   tgrAtendSincronizar();
+  tgrConsultarCompartilhado();
   return {usuario:tgrUsuario};
 }
 function tgrCapturarGPS(){return new Promise((resolve,reject)=>{
@@ -879,12 +909,20 @@ async function tgrAtendSincronizar(){
   while(navigator.onLine){
    const fila=tgrAtendFila();if(!fila.length)break;
    const item=fila[0];
-   const resposta=await tgrApi({...item,acao:'atendimento_local',requisicao:tgrAtendId()});
+   const resposta=await tgrApi({...item,acao:item.status==='REPASSE'?'repasse_local':'atendimento_local',requisicao:tgrAtendId()});
    if(!resposta.ok||resposta.idRegistro!==item.idRegistro)throw Error('Confirmação de registro inválida.');
    tgrAtendSalvar(tgrAtendFila().filter(x=>x.idRegistro!==item.idRegistro));
-   console.info('TGR: atendimento confirmado na planilha',item.idRegistro);
+   console.info('TGR: status confirmado na planilha',item.idRegistro);
+   tgrConsultarCompartilhado();
   }
- }catch(e){console.warn('TGR: aguardando sincronização:',e.message);}
+ }catch(e){
+  if(String(e.message||'').startsWith('CONFLITO:')){
+   const fila=tgrAtendFila(),item=fila[0];
+   if(item){const conflitos=JSON.parse(localStorage.getItem('tgr_conflitos_v1')||'[]');conflitos.push({...item,erro:e.message});localStorage.setItem('tgr_conflitos_v1',JSON.stringify(conflitos));tgrAtendSalvar(fila.slice(1));}
+   alert('Conflito de sincronização: outro aparelho já encerrou este pedido. O registro recusado foi preservado neste celular para conferência.');
+   setTimeout(()=>{tgrConsultarCompartilhado();tgrAtendSincronizar();},100);
+  }else console.warn('TGR: aguardando sincronização:',e.message);
+ }
  finally{tgrAtendEnviando=false;}
 }
 
@@ -933,7 +971,7 @@ async function tgrEncerrarAtendimento(status,motivo){
   // GPS do dispositivo no instante da finalização, nunca a posição cadastrada do cliente.
   const gps=await tgrCapturarGPS();
   const registro={idRegistro:tgrAtendId(),clienteCodigo:p.cliente,clienteNome:nomeFantasiaCliente(p.cliente),pedido:p.pedido,
-   rota:p.rota,placa:select.value,motorista:tgrUsuario,status,latitude:gps.latitude,longitude:gps.longitude,
+   rota:p.rota,dataRota:tgrDataProgramacao(),placa:select.value,motorista:tgrUsuario,status,latitude:gps.latitude,longitude:gps.longitude,
    precisaoMetros:gps.accuracy,dataHoraDispositivo:new Date().toISOString(),observacao:String(motivo||'').trim(),origem:'TGR Rota'};
   const fila=tgrAtendFila();fila.push(registro);
   // Gravar primeiro a fila e só depois o estado definitivo: não perder o registro.
@@ -955,14 +993,21 @@ document.getElementById('tgrDevolucaoBtn').onclick=()=>{
 document.getElementById('tgrConfirmarDevolucao').onclick=()=>tgrEncerrarAtendimento('DEVOLUCAO',document.getElementById('tgrMotivoTexto').value);
 document.getElementById('tgrRepasseBtn').onclick=()=>{
  const p=tgrPedidoModal;if(!p)return;
- try{localStorage.setItem(chaveStatus(p),'repasse');}
- catch(e){alert('Não foi possível salvar o repasse.');return;}
+ try{
+  const fila=tgrAtendFila();fila.push({idRegistro:tgrAtendId(),clienteCodigo:p.cliente,pedido:p.pedido,rota:p.rota,dataRota:tgrDataProgramacao(),motorista:tgrUsuario,status:'REPASSE'});
+  tgrAtendSalvar(fila);localStorage.setItem(chaveStatus(p),'repasse');
+ }catch(e){alert('Não foi possível salvar o repasse.');return;}
+ tgrAtendSincronizar();
  tgrFecharAtendimento();tgrRedesenharAtendimento();
 };
 document.getElementById('tgrCancelarAtendimento').onclick=tgrFecharAtendimento;
 window.addEventListener('online',tgrAtendSincronizar);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)tgrAtendSincronizar();});
 setInterval(tgrAtendSincronizar,45000);
+setInterval(tgrConsultarCompartilhado,15000);
+window.addEventListener('online',()=>{tgrAtendSincronizar();tgrConsultarCompartilhado();});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)tgrConsultarCompartilhado();});
+select.addEventListener('change',()=>{tgrCompartilhado.clear();setTimeout(tgrConsultarCompartilhado,100);});
 // ===== FIM AUTENTICAÇÃO E REGISTRO =====
 
 function abrirPagamento(p){
