@@ -152,6 +152,25 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
 
 
 .localizacaoBtn{position:fixed;right:12px;bottom:22px;z-index:1100;border:0;border-radius:22px;padding:11px 14px;background:#fff;color:#1f2937;font-weight:bold;font-size:12px;box-shadow:0 2px 10px #0004;cursor:pointer}.localizacaoBtn.ativo{background:#1565c0;color:#fff}.localizacaoBtn.erro{background:#b00000;color:#fff}.localizacaoMotorista{width:18px;height:18px;border-radius:50%;background:#1565c0;border:3px solid #fff;box-shadow:0 0 0 5px rgba(21,101,192,.22),0 1px 6px #0008}
+
+/* Fluxo de atendimento TGR */
+.pedidoItem.repasse{background:#fff7d6;border:2px solid #d59b00}
+.pedidoItem.finalizado{background:#eff8f0;border-color:#148a2a}
+.pedidoItem.devolvido{background:#fff0f0;border-color:#b42318}
+.statusBtn.repasse{background:#d59b00;color:#222}
+.statusBtn.devolvido{background:#b42318}
+.statusBtn.em_atendimento{background:#1565c0}
+.statusBtn:disabled{cursor:not-allowed;opacity:.85}
+.tgrModal{position:fixed;inset:0;background:#0009;z-index:20000;display:none;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}
+.tgrModal.ativo{display:flex}
+.tgrModalCard{background:#fff;border-radius:14px;padding:22px;width:min(420px,100%);box-sizing:border-box;box-shadow:0 8px 35px #0004}
+.tgrModalCard h3{margin:0 0 8px;font-size:18px}
+.tgrModalCard p{font-size:13px;color:#555;line-height:1.5}
+.tgrModalCard button{width:100%;padding:12px;border:0;border-radius:8px;font-weight:bold;cursor:pointer;margin-top:9px;color:#fff;background:#148a2a}
+.tgrModalCard button.repasseAcao{background:#d59b00;color:#222}
+.tgrModalCard button.devolucaoAcao{background:#b42318}
+.tgrModalCard button.cancelarAcao{background:#eee;color:#333}
+.tgrModalCard textarea{width:100%;box-sizing:border-box;min-height:100px;padding:10px;border:1px solid #aaa;border-radius:8px;font:14px Arial;resize:vertical}
 </style>
 <script>
 // TGR Offline V2 - registra o Service Worker assim que possível.
@@ -847,24 +866,78 @@ async function tgrAtendSincronizar(){
  finally{tgrAtendEnviando=false;}
 }
 
+// Um pedido encerrado não pode ser reaberto pelo motorista.
+// O status local é mantido entre sessões no mesmo navegador.
+let tgrPedidoModal=null,tgrFinalizando=false;
+function tgrRedesenharAtendimento(){renderPedidos(select.value);renderMapa(select.value);}
+function tgrAbrirAtendimento(p){
+ tgrPedidoModal=p;
+ const modal=document.getElementById('tgrAtendimentoModal');
+ document.getElementById('tgrModalTitulo').textContent='Pedido '+p.pedido;
+ document.getElementById('tgrModalDescricao').textContent='Cliente: '+nomeFantasiaCliente(p.cliente)+' — escolha o resultado do atendimento.';
+ document.getElementById('tgrModalOpcoes').style.display='block';
+ document.getElementById('tgrMotivoArea').style.display='none';
+ document.getElementById('tgrMotivoTexto').value='';
+ modal.classList.add('ativo');
+}
+function tgrFecharAtendimento(){
+ if(tgrFinalizando)return;
+ document.getElementById('tgrAtendimentoModal').classList.remove('ativo');
+ tgrPedidoModal=null;
+}
 async function alternarStatus(p){
  if(!tgrToken){alert('Faça login para registrar atendimentos.');return;}
  const anterior=getStatus(p);
- if(anterior==='atendido'){
-  if(!confirm('Voltar este pedido para Pendente? O registro anterior permanecerá no histórico.'))return;
-  localStorage.setItem(chaveStatus(p),'pendente');renderPedidos(select.value);renderMapa(select.value);return;
+ if(anterior==='atendido'||anterior==='devolvido')return;
+ if(anterior==='pendente'){
+  try{localStorage.setItem(chaveStatus(p),'em_atendimento');}
+  catch(e){alert('Não foi possível salvar o início do atendimento.');return;}
+  tgrRedesenharAtendimento();
  }
- if(!confirm('Confirmar atendimento do pedido '+p.pedido+'?'))return;
- // Captura apenas ao confirmar; não usa coordenadas do cliente como se fossem do motorista.
- let gps;try{gps=await tgrCapturarGPS();}catch(err){alert(err.message+'\nAtendimento não confirmado. Ative a localização e tente novamente.');return;}
- const registro={idRegistro:tgrAtendId(),clienteCodigo:p.cliente,clienteNome:nomeFantasiaCliente(p.cliente),pedido:p.pedido,
-  rota:p.rota,placa:select.value,motorista:tgrUsuario,status:'ATENDIDO',latitude:gps.latitude,longitude:gps.longitude,
-  precisaoMetros:gps.accuracy,dataHoraDispositivo:new Date().toISOString(),observacao:'',origem:'TGR Rota'};
- try{const fila=tgrAtendFila();fila.push(registro);tgrAtendSalvar(fila);}catch(_){alert('Não foi possível salvar neste dispositivo.');return;}
- localStorage.setItem(chaveStatus(p),'atendido');renderPedidos(select.value);renderMapa(select.value);
- alert('Atendimento salvo em nome de '+tgrUsuario+'. O envio ao Google Planilhas será tentado agora; se não houver confirmação, ficará pendente de sincronização.');
- tgrAtendSincronizar();
+ tgrAbrirAtendimento(p);
 }
+async function tgrEncerrarAtendimento(status,motivo){
+ const p=tgrPedidoModal;if(!p||tgrFinalizando)return;
+ if(['atendido','devolvido'].includes(getStatus(p)))return;
+ if(status==='DEVOLUCAO'&&!String(motivo||'').trim()){
+  alert('Informe o motivo da devolução para finalizar.');
+  document.getElementById('tgrMotivoTexto').focus();return;
+ }
+ if(!confirm(status==='DEVOLUCAO'?'Confirmar devolução definitiva do pedido '+p.pedido+'?':'Finalizar definitivamente o atendimento do pedido '+p.pedido+'?'))return;
+ tgrFinalizando=true;
+ const btn=document.getElementById(status==='DEVOLUCAO'?'tgrConfirmarDevolucao':'tgrFinalizarBtn');
+ btn.disabled=true;
+ try{
+  // GPS do dispositivo no instante da finalização, nunca a posição cadastrada do cliente.
+  const gps=await tgrCapturarGPS();
+  const registro={idRegistro:tgrAtendId(),clienteCodigo:p.cliente,clienteNome:nomeFantasiaCliente(p.cliente),pedido:p.pedido,
+   rota:p.rota,placa:select.value,motorista:tgrUsuario,status,latitude:gps.latitude,longitude:gps.longitude,
+   precisaoMetros:gps.accuracy,dataHoraDispositivo:new Date().toISOString(),observacao:String(motivo||'').trim(),origem:'TGR Rota'};
+  const fila=tgrAtendFila();fila.push(registro);
+  // Gravar primeiro a fila e só depois o estado definitivo: não perder o registro.
+  tgrAtendSalvar(fila);
+  localStorage.setItem(chaveStatus(p),status==='DEVOLUCAO'?'devolvido':'atendido');
+  document.getElementById('tgrAtendimentoModal').classList.remove('ativo');tgrPedidoModal=null;
+  tgrRedesenharAtendimento();
+  tgrAtendSincronizar();
+  alert(status==='DEVOLUCAO'?'Devolução registrada. Envio ao Google Planilhas iniciado.':'Atendimento finalizado. Envio ao Google Planilhas iniciado.');
+ }catch(err){alert((err&&err.message)||'Falha ao registrar. O pedido não foi finalizado.');}
+ finally{tgrFinalizando=false;btn.disabled=false;}
+}
+document.getElementById('tgrFinalizarBtn').onclick=()=>tgrEncerrarAtendimento('ATENDIDO','');
+document.getElementById('tgrDevolucaoBtn').onclick=()=>{
+ document.getElementById('tgrModalOpcoes').style.display='none';
+ document.getElementById('tgrMotivoArea').style.display='block';
+ document.getElementById('tgrMotivoTexto').focus();
+};
+document.getElementById('tgrConfirmarDevolucao').onclick=()=>tgrEncerrarAtendimento('DEVOLUCAO',document.getElementById('tgrMotivoTexto').value);
+document.getElementById('tgrRepasseBtn').onclick=()=>{
+ const p=tgrPedidoModal;if(!p)return;
+ try{localStorage.setItem(chaveStatus(p),'repasse');}
+ catch(e){alert('Não foi possível salvar o repasse.');return;}
+ tgrFecharAtendimento();tgrRedesenharAtendimento();
+};
+document.getElementById('tgrCancelarAtendimento').onclick=tgrFecharAtendimento;
 window.addEventListener('online',tgrAtendSincronizar);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)tgrAtendSincronizar();});
 setInterval(tgrAtendSincronizar,45000);
@@ -997,12 +1070,12 @@ function renderPedidos(placa){
     '<div class="pedidosConteudo">'+itens.map((p,i)=>{
     const st=getStatus(p);
     const prioridade=atendimentoCliente(p.cliente);
-    return '<div class="pedidoItem'+(prioridade?' prioritario':'')+'" data-i="'+i+'" title="Clique para localizar no mapa">'+
+    return '<div class="pedidoItem'+(prioridade?' prioritario':'')+(st==='repasse'?' repasse':st==='atendido'?' finalizado':st==='devolvido'?' devolvido':'')+'" data-i="'+i+'" title="Clique para localizar no mapa">'+
       '<div class="pedidoTopo"><span class="pedidoNum">'+esc(numeroParada(p,i))+'ª entrega • Pedido '+esc(p.pedido)+' — '+esc(nomeFantasiaCliente(p.cliente))+'</span><span class="pedidoPeso">'+pesoNum(p.peso).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+' kg</span></div>'+
       '<div>Cliente: '+esc(p.cliente)+' • '+esc(p.cidade)+'</div>'+
       (prioridade?'<div class="prioridadeDetalhes">'+detalhesAtendimento(prioridade)+'</div>':'')+
       '<div class="statusBtns">'+
-      '<button class="statusBtn '+(st==='atendido'?'atendido':'pendente')+'" data-i="'+i+'">'+(st==='atendido'?'Atendido':'Pendente')+'</button>'+
+      '<button class="statusBtn '+(st==='atendido'?'atendido':st==='devolvido'?'devolvido':st==='repasse'?'repasse':st==='em_atendimento'?'em_atendimento':'pendente')+'" data-i="'+i+'" '+(['atendido','devolvido'].includes(st)?'disabled':'')+'>'+({atendido:'Atendido',devolvido:'Devolvido',repasse:'Retomar atendimento',em_atendimento:'Continuar atendimento',pendente:'Iniciar atendimento'}[st]||'Iniciar atendimento')+'</button>'+
       (dadosPix.has(normalizarCodigoCliente(p.cliente))
         ? '<button class="pagamentoBtn" data-i="'+i+'">Forma de Pagamento</button>'
         : '<button class="pagamentoBtn indisponivel" type="button" disabled>PIX indisponível</button>')+
@@ -1036,7 +1109,7 @@ function renderMapa(placa){
   itens.forEach((p,i)=>{
     const st=getStatus(p);
     const prioridade=atendimentoCliente(p.cliente);
-    const cor=st==='atendido'?'#148a2a':(prioridade?'#1565c0':'#c00000');
+    const cor=st==='atendido'?'#148a2a':st==='devolvido'?'#b42318':st==='repasse'?'#d59b00':(prioridade?'#1565c0':'#c00000');
     const icon=L.divIcon({className:'',html:'<div class="num" style="background:'+cor+'">'+esc(numeroParada(p,i))+'</div>',iconSize:[24,24],iconAnchor:[12,12]});
     const gps=p.gps || ('https://www.google.com/maps?q='+p.lat+','+p.lon);
 
@@ -1244,5 +1317,23 @@ document.addEventListener('DOMContentLoaded',function(){
 <script>
 (function(){let wid=null,m=null,c=null,pos=null,primeira=true;const btn=document.getElementById('localizacaoBtn');function ico(){return L.divIcon({className:'',html:'<div class="localizacaoMotorista"></div>',iconSize:[24,24],iconAnchor:[12,12]});}function ok(p){const ll=[p.coords.latitude,p.coords.longitude],acc=Number(p.coords.accuracy)||0;pos=ll;if(!m){m=L.marker(ll,{icon:ico(),zIndexOffset:5000}).addTo(map);m.bindPopup('<div class="popup"><b>Sua localização</b><br>Precisão aproximada: '+Math.round(acc)+' m</div>');}else{m.setLatLng(ll);m.setPopupContent('<div class="popup"><b>Sua localização</b><br>Precisão aproximada: '+Math.round(acc)+' m</div>');}if(!c)c=L.circle(ll,{radius:acc,weight:1,opacity:.55,fillOpacity:.08}).addTo(map);else{c.setLatLng(ll);c.setRadius(acc);}btn.classList.remove('erro');btn.classList.add('ativo');btn.textContent='◎ MINHA LOCALIZAÇÃO';if(primeira){primeira=false;map.setView(ll,Math.max(map.getZoom(),16));}}function erro(e){console.warn(e);btn.classList.remove('ativo');btn.classList.add('erro');btn.textContent=e&&e.code===1?'LOCALIZAÇÃO BLOQUEADA':'GPS INDISPONÍVEL';}function iniciar(){if(!navigator.geolocation){erro({code:0});return;}if(wid!==null)return;btn.textContent='LOCALIZANDO...';wid=navigator.geolocation.watchPosition(ok,erro,{enableHighAccuracy:true,maximumAge:3000,timeout:20000});}btn.addEventListener('click',()=>{if(pos){map.setView(pos,Math.max(map.getZoom(),16));if(m)m.openPopup();}else iniciar();});iniciar();})();
 </script>
+
+<div class="tgrModal" id="tgrAtendimentoModal" role="dialog" aria-modal="true" aria-label="Opções do atendimento">
+ <div class="tgrModalCard">
+  <h3 id="tgrModalTitulo">Atendimento</h3>
+  <p id="tgrModalDescricao"></p>
+  <div id="tgrModalOpcoes">
+   <button type="button" id="tgrFinalizarBtn">Finalizar atendimento</button>
+   <button type="button" id="tgrDevolucaoBtn" class="devolucaoAcao">Devolução</button>
+   <button type="button" id="tgrRepasseBtn" class="repasseAcao">Repasse — retornar ao cliente</button>
+  </div>
+  <div id="tgrMotivoArea" style="display:none">
+   <label for="tgrMotivoTexto" style="font-size:13px;font-weight:bold">Motivo da devolução (obrigatório)</label>
+   <textarea id="tgrMotivoTexto" maxlength="1000" placeholder="Descreva o motivo da devolução"></textarea>
+   <button type="button" id="tgrConfirmarDevolucao" class="devolucaoAcao">Confirmar devolução</button>
+  </div>
+  <button type="button" id="tgrCancelarAtendimento" class="cancelarAcao">Voltar à rota</button>
+ </div>
+</div>
 </body>
 </html>
