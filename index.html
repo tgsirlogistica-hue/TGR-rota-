@@ -156,9 +156,9 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
 /* Fluxo de atendimento TGR */
 .pedidoItem.repasse{background:#fff7d6;border:2px solid #d59b00}
 .pedidoItem.finalizado{background:#eff8f0;border-color:#148a2a}
-.pedidoItem.devolvido{background:#fff0f0;border-color:#b42318}
+.pedidoItem.devolvido{background:#f0f0f0;border-color:#777}
 .statusBtn.repasse{background:#d59b00;color:#222}
-.statusBtn.devolvido{background:#b42318}
+.statusBtn.devolvido{background:#777}
 .statusBtn.em_atendimento{background:#1565c0}
 .statusBtn:disabled{cursor:not-allowed;opacity:.85}
 .tgrModal{position:fixed;inset:0;background:#0009;z-index:20000;display:none;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}
@@ -168,7 +168,7 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
 .tgrModalCard p{font-size:13px;color:#555;line-height:1.5}
 .tgrModalCard button{width:100%;padding:12px;border:0;border-radius:8px;font-weight:bold;cursor:pointer;margin-top:9px;color:#fff;background:#148a2a}
 .tgrModalCard button.repasseAcao{background:#d59b00;color:#222}
-.tgrModalCard button.devolucaoAcao{background:#b42318}
+.tgrModalCard button.devolucaoAcao{background:#777}
 .tgrModalCard button.cancelarAcao{background:#eee;color:#333}
 .tgrModalCard textarea{width:100%;box-sizing:border-box;min-height:100px;padding:10px;border:1px solid #aaa;border-radius:8px;font:14px Arial;resize:vertical}
 </style>
@@ -1126,7 +1126,7 @@ function renderMapa(placa){
   itens.forEach((p,i)=>{
     const st=getStatus(p);
     const prioridade=atendimentoCliente(p.cliente);
-    const cor=st==='atendido'?'#148a2a':st==='devolvido'?'#b42318':st==='repasse'?'#d59b00':(prioridade?'#1565c0':'#c00000');
+    const cor=st==='atendido'?'#148a2a':st==='devolvido'?'#777777':st==='repasse'?'#d59b00':(prioridade?'#1565c0':'#c00000');
     const icon=L.divIcon({className:'',html:'<div class="num" style="background:'+cor+'">'+esc(numeroParada(p,i))+'</div>',iconSize:[24,24],iconAnchor:[12,12]});
     const gps=p.gps || ('https://www.google.com/maps?q='+p.lat+','+p.lon);
 
