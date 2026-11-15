@@ -849,9 +849,15 @@ function tgrConsultarCompartilhado(){
    snapshot.forEach(doc=>{
     const x=doc.data(),chave=[x.dataRota,x.rota,x.pedido,x.clienteCodigo].join('|');
     const st={ATENDIDO:'atendido',DEVOLUCAO:'devolvido',REPASSE:'repasse',EM_ATENDIMENTO:'em_atendimento',PENDENTE:'pendente'}[x.status]||'pendente';
+    const anterior=tgrCompartilhado.get(chave);
     vistos.add(chave);tgrCompartilhado.set(chave,st);
     const p=dados.find(p=>tgrChaveCompartilhada(p)===chave);
+    // Uma reabertura confirmada pelo servidor tem prioridade sobre o cache antigo.
+    // Não removemos filas pendentes: elas podem conter operações ainda não sincronizadas.
     if(p&&!tgrFilaTemPedido(p))localStorage.setItem(chaveStatus(p),st);
+    if(p&&anterior==='devolvido'&&st==='pendente'&&!snapshot.metadata.fromCache){
+      tgrNotificar('Pedido '+p.pedido+' reaberto pela distribuição. Nova tentativa liberada.','sucesso',6500);
+    }
    });
    for(const k of [...tgrCompartilhado.keys()])if(k.startsWith(assinatura+'|')&&!vistos.has(k))tgrCompartilhado.delete(k);
    // Apenas respostas do servidor são autoridade; cache offline não apaga dados locais.
