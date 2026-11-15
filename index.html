@@ -869,16 +869,21 @@ function tgrAtendFila(){try{return JSON.parse(localStorage.getItem(TGR_ATEND_FIL
 function tgrAtendSalvar(f){localStorage.setItem(TGR_ATEND_FILA,JSON.stringify(f));}
 function tgrAtendId(){return crypto.randomUUID?crypto.randomUUID():('tgr_'+Date.now()+'_'+Math.random().toString(36).slice(2));}
 // Fila independente para espelhar no Google Planilhas somente após confirmação do Firebase.
-const TGR_PLANILHA_FILA='tgr_planilha_fila_v1';
+// Fila V2 separada da fila LEGADA de importação de rotas (359 itens sem idRegistro).
+const TGR_PLANILHA_FILA='tgr_planilha_atendimentos_v2';
 let tgrPlanilhaEnviando=false;
 function tgrPlanilhaFila(){try{return JSON.parse(localStorage.getItem(TGR_PLANILHA_FILA)||'[]')}catch(_){return []}}
 function tgrPlanilhaSalvar(f){localStorage.setItem(TGR_PLANILHA_FILA,JSON.stringify(f));}
-function tgrPlanilhaEnfileirar(item){const fila=tgrPlanilhaFila();if(!fila.some(x=>x.idRegistro===item.idRegistro)){fila.push(item);tgrPlanilhaSalvar(fila);}}
+function tgrPlanilhaEnfileirar(item){
+ if(!item || !/^[a-zA-Z0-9_-]{12,100}$/.test(String(item.idRegistro||''))) {console.error('Planilha: atendimento sem ID válido, não enfileirado',item);return;}
+ const fila=tgrPlanilhaFila();if(!fila.some(x=>x.idRegistro===item.idRegistro)){fila.push(item);tgrPlanilhaSalvar(fila);}
+}
 async function tgrPlanilhaSincronizar(){
  if(tgrPlanilhaEnviando||!navigator.onLine||!tgrUsuario)return;
  tgrPlanilhaEnviando=true;
  try{
   for(const item of tgrPlanilhaFila()){
+   if(!/^[a-zA-Z0-9_-]{12,100}$/.test(String(item.idRegistro||''))){console.warn('Planilha: item inválido preservado para revisão',item);break;}
    // O endpoint já implementa validação e idempotência pelo ID_REGISTRO.
    const payload={...item,acao:'atendimento_local',requisicao:tgrAtendId()};
    try{
