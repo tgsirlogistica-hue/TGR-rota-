@@ -171,6 +171,10 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
 .tgrModalCard button.devolucaoAcao{background:#777}
 .tgrModalCard button.cancelarAcao{background:#eee;color:#333}
 .tgrModalCard textarea{width:100%;box-sizing:border-box;min-height:100px;padding:10px;border:1px solid #aaa;border-radius:8px;font:14px Arial;resize:vertical}
+
+/* Notificações discretas de atendimento, sem caixas bloqueantes */
+#tgrToast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:30000;max-width:min(420px,calc(100vw - 32px));width:max-content;box-sizing:border-box;padding:12px 17px;border-radius:10px;background:#30343b;color:#fff;box-shadow:0 5px 20px #0005;font:600 13px/1.4 Arial,sans-serif;text-align:center;opacity:0;pointer-events:none;transition:opacity .2s ease}
+#tgrToast.visivel{opacity:1}#tgrToast.sucesso{background:#167b35}#tgrToast.erro{background:#a32727}
 </style>
 <script>
 // TGR Offline V2 - registra o Service Worker assim que possível.
@@ -950,6 +954,12 @@ function tgrCapturarGPS(){return new Promise((resolve,reject)=>{
 });}
 // O Apps Script antigo exige token emitido pelo servidor. Login local não gera esse token.
 // Não enviar registros com credenciais falsas nem afirmar sincronização.
+let tgrToastTimer=null,tgrToastRegistro=null;
+function tgrNotificar(mensagem,tipo='info',duracao=3500){
+ const el=document.getElementById('tgrToast');if(!el)return;
+ clearTimeout(tgrToastTimer);el.textContent=mensagem;el.className='visivel '+tipo;
+ tgrToastTimer=setTimeout(()=>{el.className='';},duracao);
+}
 async function tgrAtendSincronizar(){
  if(tgrAtendEnviando||!navigator.onLine||!tgrUsuario)return;
  tgrAtendEnviando=true;
@@ -971,6 +981,10 @@ async function tgrAtendSincronizar(){
    });
    if(['ATENDIDO','DEVOLUCAO'].includes(item.status))tgrPlanilhaEnfileirar(item);
    tgrAtendSalvar(tgrAtendFila().filter(x=>x.idRegistro!==item.idRegistro));
+   if(tgrToastRegistro===item.idRegistro){
+    tgrToastRegistro=null;
+    tgrNotificar('Pedido '+item.pedido+' sincronizado com sucesso no Firebase!','sucesso',4000);
+   }
    tgrPlanilhaSincronizar();
   }
  }catch(e){
@@ -1023,7 +1037,6 @@ async function tgrEncerrarAtendimento(status,motivo){
   alert('Informe o motivo da devolução para finalizar.');
   document.getElementById('tgrMotivoTexto').focus();return;
  }
- if(!confirm(status==='DEVOLUCAO'?'Confirmar devolução definitiva do pedido '+p.pedido+'?':'Finalizar definitivamente o atendimento do pedido '+p.pedido+'?'))return;
  tgrFinalizando=true;
  const btn=document.getElementById(status==='DEVOLUCAO'?'tgrConfirmarDevolucao':'tgrFinalizarBtn');
  btn.disabled=true;
@@ -1039,8 +1052,9 @@ async function tgrEncerrarAtendimento(status,motivo){
   localStorage.setItem(chaveStatus(p),status==='DEVOLUCAO'?'devolvido':'atendido');
   document.getElementById('tgrAtendimentoModal').classList.remove('ativo');tgrPedidoModal=null;
   tgrRedesenharAtendimento();
+  tgrToastRegistro=registro.idRegistro;
+  tgrNotificar('Pedido '+p.pedido+' salvo. Aguardando sincronização com o Firebase.','info',5000);
   tgrAtendSincronizar();
-  alert('Registro salvo neste aparelho e colocado na fila de envio ao Firebase. Confirme a sincronização antes de considerar o pedido concluído no servidor.');
  }catch(err){alert((err&&err.message)||'Falha ao registrar. O pedido não foi finalizado.');}
  finally{tgrFinalizando=false;btn.disabled=false;}
 }
@@ -1446,5 +1460,6 @@ document.addEventListener('DOMContentLoaded',function(){
 </script>
 
 
+<div id="tgrToast" role="status" aria-live="polite"></div>
 </body>
 </html>
