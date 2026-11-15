@@ -178,6 +178,16 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=7').catch(console.warn));
 }
 </script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script>
+const tgrFirebaseApp=firebase.initializeApp({apiKey:"AIzaSyChKi_yZAvB1Zu0lGd0a-JMGgusQdsrcMs",authDomain:"tgr-rota.firebaseapp.com",projectId:"tgr-rota",storageBucket:"tgr-rota.firebasestorage.app",messagingSenderId:"593240013276",appId:"1:593240013276:web:0f7ce27644134e772bf719"});
+const tgrAuth=firebase.auth();
+const tgrDb=firebase.firestore();
+let tgrAuthPromise=null;
+function tgrAutenticarFirebase(){return tgrAuthPromise||(tgrAuthPromise=tgrAuth.signInAnonymously().then(x=>x.user).catch(e=>{tgrAuthPromise=null;throw e;}));}
+</script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
 </head>
 <body>
@@ -801,39 +811,44 @@ setInterval(tgrSincronizar,60000);
 // ===== FIM INTEGRAÇÃO =====
 
 function chaveStatus(p){return 'statusPedidoTGR|'+p.rota+'|'+p.pedido+'|'+p.cliente;}
-const TGR_COMPARTILHADO_CHAVE='tgr_compartilhado_v1';
-let tgrCompartilhado=new Map(),tgrConsultando=false,tgrConsultaConfirmada=new Set();
+// Firestore: fonte central para todos os aparelhos; localStorage é somente cache/fila.
+let tgrCompartilhado=new Map(),tgrConsultaConfirmada=new Set(),tgrDesinscrever=null,tgrAssinatura='',tgrServidorPronto=false;
 function tgrChaveCompartilhada(p){return [tgrDataProgramacao(),p.rota,p.pedido,p.cliente].join('|');}
-function tgrFilaTemPedido(p){return tgrAtendFila().some(x=>tgrChaveRegistro(x)===tgrChaveCompartilhada(p));}
 function tgrChaveRegistro(x){return [x.dataRota,x.rota,x.pedido,x.clienteCodigo].join('|');}
+function tgrFilaTemPedido(p){return tgrAtendFila().some(x=>tgrChaveRegistro(x)===tgrChaveCompartilhada(p));}
+function tgrIdDocumento(p){return [tgrDataProgramacao(),p.rota,p.pedido,p.cliente].map(x=>encodeURIComponent(String(x||'').trim())).join('~');}
 function getStatus(p){
- const local=localStorage.getItem(chaveStatus(p))||'pendente';
- if(tgrFilaTemPedido(p))return local;
+ if(tgrFilaTemPedido(p))return localStorage.getItem(chaveStatus(p))||'pendente';
  const remoto=tgrCompartilhado.get(tgrChaveCompartilhada(p));
  if(remoto)return remoto;
  if(tgrConsultaConfirmada.has(tgrDataProgramacao()+'|'+p.rota))return 'pendente';
- return local;
+ return localStorage.getItem(chaveStatus(p))||'pendente';
 }
-async function tgrConsultarCompartilhado(){
- if(tgrConsultando||!navigator.onLine||!tgrUsuario||!select.value)return;
- tgrConsultando=true;
- try{
-  const r=await tgrApi({acao:'consultar_status',requisicao:tgrAtendId(),motorista:tgrUsuario,dataRota:tgrDataProgramacao(),rota:select.value});
-  const presentes=new Set();
-  console.info('TGR sincronização: consulta confirmada', {data:tgrDataProgramacao(),rota:select.value,registros:(r.estados||[]).length});
-  tgrConsultaConfirmada.add(tgrDataProgramacao()+'|'+select.value);
-  for(const s of (r.estados||[])){
-   const chave=[tgrDataProgramacao(),select.value,s.pedido,s.cliente].join('|');presentes.add(chave);
-   const st={ATENDIDO:'atendido',DEVOLUCAO:'devolvido',REPASSE:'repasse',PENDENTE:'pendente'}[s.status]||'pendente';
-   tgrCompartilhado.set(chave,st);
-   const p=dados.find(x=>tgrChaveCompartilhada(x)===chave);
-   if(p&&!tgrFilaTemPedido(p))localStorage.setItem(chaveStatus(p),st);
-  }
-  for(const chave of [...tgrCompartilhado.keys()])if(chave.startsWith(tgrDataProgramacao()+'|'+select.value+'|')&&!presentes.has(chave))tgrCompartilhado.delete(chave);
-  for(const p of dados)if(p.rota===select.value&&!presentes.has(tgrChaveCompartilhada(p))&&!tgrFilaTemPedido(p))localStorage.setItem(chaveStatus(p),'pendente');
-  tgrRedesenharAtendimento();
- }catch(e){console.error('TGR: consulta compartilhada falhou:',e.message);}
- finally{tgrConsultando=false;}
+function tgrConsultarCompartilhado(){
+ if(!tgrUsuario||!select.value)return;
+ const assinatura=tgrDataProgramacao()+'|'+select.value;
+ if(tgrAssinatura===assinatura&&tgrDesinscrever)return;
+ if(tgrDesinscrever){tgrDesinscrever();tgrDesinscrever=null;}
+ tgrAssinatura=assinatura;tgrServidorPronto=false;
+ tgrAutenticarFirebase().then(()=>{
+  if(tgrAssinatura!==assinatura)return;
+  const consulta=tgrDb.collection('entregas').where('dataRota','==',tgrDataProgramacao()).where('rota','==',select.value);
+  tgrDesinscrever=consulta.onSnapshot(snapshot=>{
+   if(tgrAssinatura!==assinatura)return;
+   const vistos=new Set();
+   snapshot.forEach(doc=>{
+    const x=doc.data(),chave=[x.dataRota,x.rota,x.pedido,x.clienteCodigo].join('|');
+    const st={ATENDIDO:'atendido',DEVOLUCAO:'devolvido',REPASSE:'repasse',EM_ATENDIMENTO:'em_atendimento',PENDENTE:'pendente'}[x.status]||'pendente';
+    vistos.add(chave);tgrCompartilhado.set(chave,st);
+    const p=dados.find(p=>tgrChaveCompartilhada(p)===chave);
+    if(p&&!tgrFilaTemPedido(p))localStorage.setItem(chaveStatus(p),st);
+   });
+   for(const k of [...tgrCompartilhado.keys()])if(k.startsWith(assinatura+'|')&&!vistos.has(k))tgrCompartilhado.delete(k);
+   // Apenas respostas do servidor são autoridade; cache offline não apaga dados locais.
+   if(!snapshot.metadata.fromCache){tgrConsultaConfirmada.add(assinatura);tgrServidorPronto=true;}
+   tgrRedesenharAtendimento();
+  },e=>{console.error('Firestore: leitura recusada',e);alert('Não foi possível ler a rota no Firebase: '+e.message);});
+ }).catch(e=>console.error('Firebase: autenticação falhou',e));
 }
 
 function chaveMarcador(p){return p.rota+'|'+p.pedido+'|'+p.cliente;}
@@ -896,6 +911,7 @@ async function tgrLogin(senha){
   if(!tgrUsuario)throw new Error('Cadastro sem nome de usuário.');
   // Marcador de sessão local; NÃO é token de autenticação de servidor.
   tgrToken='LOGIN_LOCAL';
+  await tgrAutenticarFirebase();
   sessionStorage.setItem('tgr_sessao_v1',JSON.stringify({usuario:tgrUsuario,token:tgrToken}));
   tgrAtendSincronizar();
   tgrConsultarCompartilhado();
@@ -908,27 +924,34 @@ function tgrCapturarGPS(){return new Promise((resolve,reject)=>{
 // O Apps Script antigo exige token emitido pelo servidor. Login local não gera esse token.
 // Não enviar registros com credenciais falsas nem afirmar sincronização.
 async function tgrAtendSincronizar(){
- if(tgrAtendEnviando||!navigator.onLine)return;
+ if(tgrAtendEnviando||!navigator.onLine||!tgrUsuario)return;
  tgrAtendEnviando=true;
  try{
-  while(navigator.onLine){
-   const fila=tgrAtendFila();if(!fila.length)break;
-   const item=fila[0];
-   const resposta=await tgrApi({...item,acao:item.status==='REPASSE'?'repasse_local':'atendimento_local',requisicao:tgrAtendId()});
-   if(!resposta.ok||resposta.idRegistro!==item.idRegistro)throw Error('Confirmação de registro inválida.');
+  await tgrAutenticarFirebase();
+  for(const item of tgrAtendFila()){
+   const id=[item.dataRota,item.rota,item.pedido,item.clienteCodigo].map(x=>encodeURIComponent(String(x||'').trim())).join('~');
+   const ref=tgrDb.collection('entregas').doc(id);
+   await tgrDb.runTransaction(async tx=>{
+    const snap=await tx.get(ref),anterior=snap.exists?snap.data():null;
+    if(anterior&&['ATENDIDO','DEVOLUCAO'].includes(anterior.status)&&anterior.idRegistro!==item.idRegistro)
+      throw new Error('CONFLITO: pedido já encerrado em outro aparelho');
+    const registro={idRegistro:item.idRegistro,dataRota:item.dataRota,rota:item.rota,pedido:item.pedido,clienteCodigo:item.clienteCodigo,
+      clienteNome:item.clienteNome||'',motorista:item.motorista||'',placa:item.placa||'',status:item.status,
+      observacao:item.observacao||'',latitude:item.latitude??null,longitude:item.longitude??null,precisaoMetros:item.precisaoMetros??null,
+      dataHoraDispositivo:item.dataHoraDispositivo||new Date().toISOString(),alteradoPorUid:tgrAuth.currentUser.uid,
+      atualizadoEm:firebase.firestore.FieldValue.serverTimestamp()};
+    tx.set(ref,registro);
+   });
    tgrAtendSalvar(tgrAtendFila().filter(x=>x.idRegistro!==item.idRegistro));
-   console.info('TGR: status confirmado na planilha',item.idRegistro);
-   tgrConsultarCompartilhado();
   }
  }catch(e){
+  console.error('Firestore: gravação não confirmada',e);
   if(String(e.message||'').startsWith('CONFLITO:')){
-   const fila=tgrAtendFila(),item=fila[0];
-   if(item){const conflitos=JSON.parse(localStorage.getItem('tgr_conflitos_v1')||'[]');conflitos.push({...item,erro:e.message});localStorage.setItem('tgr_conflitos_v1',JSON.stringify(conflitos));tgrAtendSalvar(fila.slice(1));}
-   alert('Conflito de sincronização: outro aparelho já encerrou este pedido. O registro recusado foi preservado neste celular para conferência.');
-   setTimeout(()=>{tgrConsultarCompartilhado();tgrAtendSincronizar();},100);
-  }else console.warn('TGR: aguardando sincronização:',e.message);
- }
- finally{tgrAtendEnviando=false;}
+   const item=tgrAtendFila()[0];
+   if(item){const conflitos=JSON.parse(localStorage.getItem('tgr_conflitos_v1')||'[]');conflitos.push({...item,erro:e.message});localStorage.setItem('tgr_conflitos_v1',JSON.stringify(conflitos));tgrAtendSalvar(tgrAtendFila().slice(1));}
+   alert('Conflito: este pedido já foi encerrado em outro aparelho. A tentativa foi preservada para conferência.');
+  }
+ }finally{tgrAtendEnviando=false;}
 }
 
 // Um pedido encerrado não pode ser reaberto pelo motorista.
@@ -985,7 +1008,7 @@ async function tgrEncerrarAtendimento(status,motivo){
   document.getElementById('tgrAtendimentoModal').classList.remove('ativo');tgrPedidoModal=null;
   tgrRedesenharAtendimento();
   tgrAtendSincronizar();
-  alert(status==='DEVOLUCAO'?'Devolução registrada. Envio ao Google Planilhas iniciado.':'Atendimento finalizado. Envio ao Google Planilhas iniciado.');
+  alert('Registro salvo neste aparelho e colocado na fila de envio ao Firebase. Confirme a sincronização antes de considerar o pedido concluído no servidor.');
  }catch(err){alert((err&&err.message)||'Falha ao registrar. O pedido não foi finalizado.');}
  finally{tgrFinalizando=false;btn.disabled=false;}
 }
