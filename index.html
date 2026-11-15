@@ -868,6 +868,27 @@ let tgrUsuario=null,tgrToken=null,tgrAtendEnviando=false;
 function tgrAtendFila(){try{return JSON.parse(localStorage.getItem(TGR_ATEND_FILA)||'[]')}catch(_){return []}}
 function tgrAtendSalvar(f){localStorage.setItem(TGR_ATEND_FILA,JSON.stringify(f));}
 function tgrAtendId(){return crypto.randomUUID?crypto.randomUUID():('tgr_'+Date.now()+'_'+Math.random().toString(36).slice(2));}
+// Fila independente para espelhar no Google Planilhas somente após confirmação do Firebase.
+const TGR_PLANILHA_FILA='tgr_planilha_fila_v1';
+let tgrPlanilhaEnviando=false;
+function tgrPlanilhaFila(){try{return JSON.parse(localStorage.getItem(TGR_PLANILHA_FILA)||'[]')}catch(_){return []}}
+function tgrPlanilhaSalvar(f){localStorage.setItem(TGR_PLANILHA_FILA,JSON.stringify(f));}
+function tgrPlanilhaEnfileirar(item){const fila=tgrPlanilhaFila();if(!fila.some(x=>x.idRegistro===item.idRegistro)){fila.push(item);tgrPlanilhaSalvar(fila);}}
+async function tgrPlanilhaSincronizar(){
+ if(tgrPlanilhaEnviando||!navigator.onLine||!tgrUsuario)return;
+ tgrPlanilhaEnviando=true;
+ try{
+  for(const item of tgrPlanilhaFila()){
+   // O endpoint já implementa validação e idempotência pelo ID_REGISTRO.
+   const payload={...item,acao:'atendimento_local',requisicao:tgrAtendId()};
+   try{
+    await tgrApi(payload);
+    tgrPlanilhaSalvar(tgrPlanilhaFila().filter(x=>x.idRegistro!==item.idRegistro));
+   }catch(e){console.warn('Planilha: registro pendente, nova tentativa posteriormente',item.idRegistro,e);break;}
+  }
+ }finally{tgrPlanilhaEnviando=false;}
+}
+
 function tgrAviso(msg,cor){const el=document.getElementById('mensagemLoginTGR');if(el){el.textContent=msg;el.style.color=cor||'#b00000';}}
 // Form POST + iframe para comunicar com Apps Script sem depender de CORS do ContentService.
 document.getElementById('mostrarSenhaTGR').addEventListener('change',function(){
@@ -914,6 +935,7 @@ async function tgrLogin(senha){
   await tgrAutenticarFirebase();
   sessionStorage.setItem('tgr_sessao_v1',JSON.stringify({usuario:tgrUsuario,token:tgrToken}));
   tgrAtendSincronizar();
+  tgrPlanilhaSincronizar();
   tgrConsultarCompartilhado();
   return {usuario:tgrUsuario};
 }
@@ -942,7 +964,9 @@ async function tgrAtendSincronizar(){
       atualizadoEm:firebase.firestore.FieldValue.serverTimestamp()};
     tx.set(ref,registro);
    });
+   if(['ATENDIDO','DEVOLUCAO'].includes(item.status))tgrPlanilhaEnfileirar(item);
    tgrAtendSalvar(tgrAtendFila().filter(x=>x.idRegistro!==item.idRegistro));
+   tgrPlanilhaSincronizar();
   }
  }catch(e){
   console.error('Firestore: gravação não confirmada',e);
@@ -953,6 +977,9 @@ async function tgrAtendSincronizar(){
   }
  }finally{tgrAtendEnviando=false;}
 }
+
+window.addEventListener('online',()=>{tgrAtendSincronizar();tgrPlanilhaSincronizar();});
+setInterval(()=>{if(navigator.onLine&&tgrUsuario){tgrAtendSincronizar();tgrPlanilhaSincronizar();}},20000);
 
 // Um pedido encerrado não pode ser reaberto pelo motorista.
 // O status local é mantido entre sessões no mesmo navegador.
