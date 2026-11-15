@@ -966,6 +966,23 @@ async function tgrAtendSincronizar(){
  try{
   await tgrAutenticarFirebase();
   for(const item of tgrAtendFila()){
+   // O GPS é obtido em segundo plano: nunca bloqueia o toque do motorista.
+   // Atendimentos antigos com coordenadas nulas continuam com o comportamento anterior.
+   if(item.gpsPendente && ['ATENDIDO','DEVOLUCAO'].includes(item.status)){
+    try{
+     const gps=await tgrCapturarGPS();
+     item.latitude=gps.latitude;item.longitude=gps.longitude;
+     item.precisaoMetros=gps.accuracy;
+     item.gpsPendente=false;
+     const atual=tgrAtendFila();
+     const pos=atual.findIndex(x=>x.idRegistro===item.idRegistro);
+     if(pos>=0){atual[pos]={...atual[pos],latitude:item.latitude,longitude:item.longitude,precisaoMetros:item.precisaoMetros,gpsPendente:false};tgrAtendSalvar(atual);}
+    }catch(e){
+     console.warn('GPS pendente; atendimento preservado para nova tentativa:',e.message);
+     if(tgrToastRegistro===item.idRegistro)tgrNotificar('Pedido '+item.pedido+' salvo. GPS indisponível; sincronização pendente.','info',5000);
+     continue;
+    }
+   }
    const id=[item.dataRota,item.rota,item.pedido,item.clienteCodigo].map(x=>encodeURIComponent(String(x||'').trim())).join('~');
    const ref=tgrDb.collection('entregas').doc(id);
    await tgrDb.runTransaction(async tx=>{
@@ -992,7 +1009,7 @@ async function tgrAtendSincronizar(){
   if(String(e.message||'').startsWith('CONFLITO:')){
    const item=tgrAtendFila()[0];
    if(item){const conflitos=JSON.parse(localStorage.getItem('tgr_conflitos_v1')||'[]');conflitos.push({...item,erro:e.message});localStorage.setItem('tgr_conflitos_v1',JSON.stringify(conflitos));tgrAtendSalvar(tgrAtendFila().slice(1));}
-   alert('Conflito: este pedido já foi encerrado em outro aparelho. A tentativa foi preservada para conferência.');
+   tgrNotificar('Conflito: pedido já encerrado em outro aparelho. Registro preservado para conferência.','erro',6000);
   }
  }finally{tgrAtendEnviando=false;}
 }
@@ -1041,11 +1058,11 @@ async function tgrEncerrarAtendimento(status,motivo){
  const btn=document.getElementById(status==='DEVOLUCAO'?'tgrConfirmarDevolucao':'tgrFinalizarBtn');
  btn.disabled=true;
  try{
-  // GPS do dispositivo no instante da finalização, nunca a posição cadastrada do cliente.
-  const gps=await tgrCapturarGPS();
+  // A ação visual é imediata. O GPS e a rede são processados depois,
+  // sem bloquear a interface nem declarar sincronização antes da confirmação.
   const registro={idRegistro:tgrAtendId(),clienteCodigo:p.cliente,clienteNome:nomeFantasiaCliente(p.cliente),pedido:p.pedido,
-   rota:p.rota,dataRota:tgrDataProgramacao(),placa:select.value,motorista:tgrUsuario,status,latitude:gps.latitude,longitude:gps.longitude,
-   precisaoMetros:gps.accuracy,dataHoraDispositivo:new Date().toISOString(),observacao:String(motivo||'').trim(),origem:'TGR Rota'};
+   rota:p.rota,dataRota:tgrDataProgramacao(),placa:select.value,motorista:tgrUsuario,status,latitude:null,longitude:null,
+   precisaoMetros:null,gpsPendente:true,dataHoraDispositivo:new Date().toISOString(),observacao:String(motivo||'').trim(),origem:'TGR Rota'};
   const fila=tgrAtendFila();fila.push(registro);
   // Gravar primeiro a fila e só depois o estado definitivo: não perder o registro.
   tgrAtendSalvar(fila);
@@ -1054,8 +1071,8 @@ async function tgrEncerrarAtendimento(status,motivo){
   tgrRedesenharAtendimento();
   tgrToastRegistro=registro.idRegistro;
   tgrNotificar('Pedido '+p.pedido+' salvo. Aguardando sincronização com o Firebase.','info',5000);
-  tgrAtendSincronizar();
- }catch(err){alert((err&&err.message)||'Falha ao registrar. O pedido não foi finalizado.');}
+  setTimeout(()=>tgrAtendSincronizar(),0);
+ }catch(err){tgrNotificar((err&&err.message)||'Falha ao salvar o atendimento.','erro',5000);}
  finally{tgrFinalizando=false;btn.disabled=false;}
 }
 document.getElementById('tgrFinalizarBtn').onclick=()=>tgrEncerrarAtendimento('ATENDIDO','');
