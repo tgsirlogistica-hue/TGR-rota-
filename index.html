@@ -258,7 +258,42 @@ function tgrAutenticarFirebase(){return tgrAuthPromise||(tgrAuthPromise=tgrAuth.
   </div>
   <div id="tgrMotivoArea" style="display:none">
    <label for="tgrMotivoTexto" style="font-size:13px;font-weight:bold">Motivo da devolução (obrigatório)</label>
-   <textarea id="tgrMotivoTexto" maxlength="1000" placeholder="Descreva o motivo da devolução"></textarea>
+   <select id="tgrMotivoTexto" required style="width:100%;margin-top:8px;margin-bottom:8px;padding:12px;border:1px solid #aaa;border-radius:8px;font-size:13px;background:#fff"><option value="" selected disabled>Selecione o motivo da devolução</option>
+<option value="01 — Cliente fechado">01 — Cliente fechado</option>
+<option value="02 — Cliente sem PIX">02 — Cliente sem PIX</option>
+<option value="04 — Produto invertidos">04 — Produto invertidos</option>
+<option value="05 — Cliente recusou o pedido">05 — Cliente recusou o pedido</option>
+<option value="06 — Cliente não fez o pedido">06 — Cliente não fez o pedido</option>
+<option value="07 — Divergência de preço">07 — Divergência de preço</option>
+<option value="08 — Proprietário ou responsável ausente">08 — Proprietário ou responsável ausente</option>
+<option value="09 — Divergência nas condições de pagamento">09 — Divergência nas condições de pagamento</option>
+<option value="10 — Veículo apresentou quebra ou falha mecânica.">10 — Veículo apresentou quebra ou falha mecânica.</option>
+<option value="11 — Recusa por falta de troca">11 — Recusa por falta de troca</option>
+<option value="12 — Cliente sem vasilhames">12 — Cliente sem vasilhames</option>
+<option value="13 — Cliente ou endereço não localizado">13 — Cliente ou endereço não localizado</option>
+<option value="14 — Produto avariado">14 — Produto avariado</option>
+<option value="15 — Erro nas informações da nota fiscal.">15 — Erro nas informações da nota fiscal.</option>
+<option value="17 — Local de difícil acesso">17 — Local de difícil acesso</option>
+<option value="18 — Endereço errado">18 — Endereço errado</option>
+<option value="19 — Pedido duplicado">19 — Pedido duplicado</option>
+<option value="20 — Falta de produto">20 — Falta de produto</option>
+<option value="21 — Ocorrência durante a entrega">21 — Ocorrência durante a entrega</option>
+<option value="24 — Entrega fora do horário comercial ou de funcionamento do cliente">24 — Entrega fora do horário comercial ou de funcionamento do cliente</option>
+<option value="25 — Produto validade próximo">25 — Produto validade próximo</option>
+<option value="26 — Entrega fora de rota.">26 — Entrega fora de rota.</option>
+<option value="27 — Consignação">27 — Consignação</option>
+<option value="28 — Cliente com título em aberto">28 — Cliente com título em aberto</option>
+<option value="29 — Nota fiscal com produto incorreto">29 — Nota fiscal com produto incorreto</option>
+<option value="30 — Nota fiscal não emitida">30 — Nota fiscal não emitida</option>
+<option value="31 — Nota fiscal incompleta">31 — Nota fiscal incompleta</option>
+<option value="32 — Produto entregue ou separado diferente do solicitado, com itens invertidos (confirmar diferença em relação ao código 04).">32 — Produto entregue ou separado diferente do solicitado, com itens invertidos (confirmar diferença em relação ao código 04).</option>
+<option value="33 — Entrega do tipo bate-volta (ida e retorno); motivo operacional específico a confirmar.">33 — Entrega do tipo bate-volta (ida e retorno); motivo operacional específico a confirmar.</option>
+<option value="34 — Recusa relacionada à condição de pagamento (confirmar diferença em relação ao código 09).">34 — Recusa relacionada à condição de pagamento (confirmar diferença em relação ao código 09).</option>
+<option value="35 — Nota fiscal de referência sem vasilhames (interpretação provável; confirmar).">35 — Nota fiscal de referência sem vasilhames (interpretação provável; confirmar).</option>
+<option value="36 — Produto ou volume faltante no caminhão no momento da entrega.">36 — Produto ou volume faltante no caminhão no momento da entrega.</option>
+<option value="37 — Produto sem rótulo">37 — Produto sem rótulo</option>
+<option value="38 — Sigla PVA não definida no documento; necessário confirmar o significado com a empresa.">38 — Sigla PVA não definida no documento; necessário confirmar o significado com a empresa.</option>
+</select>
    <button type="button" id="tgrConfirmarDevolucao" class="devolucaoAcao">Confirmar devolução</button>
   </div>
   <button type="button" id="tgrCancelarAtendimento" class="cancelarAcao">Voltar à rota</button>
@@ -1062,7 +1097,7 @@ async function tgrEncerrarAtendimento(status,motivo){
  const p=tgrPedidoModal;if(!p||tgrFinalizando)return;
  if(['atendido','devolvido'].includes(getStatus(p)))return;
  if(status==='DEVOLUCAO'&&!String(motivo||'').trim()){
-  alert('Informe o motivo da devolução para finalizar.');
+  alert('Selecione um motivo de devolução para finalizar.');
   document.getElementById('tgrMotivoTexto').focus();return;
  }
  tgrFinalizando=true;
