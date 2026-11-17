@@ -598,7 +598,7 @@ async function carregarRotas(){
     dados=novos;tgrDataSelecionada=data;
     const selectAtual=document.getElementById('placa');selectAtual.value='';
     preencherPlacas();
-    if(aviso)aviso.textContent=novos.length+' entregas encontradas para '+data.split('-').reverse().join('/')+(offline?' (cópia offline)':' (planilha online)');
+    if(aviso)aviso.textContent='Dados disponíveis';
     tgrImportarRotas();tgrSincronizar();
   }catch(erro){
     if(numero!==tgrCargaNumero)return;
