@@ -185,7 +185,7 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
 <script>
 // TGR Offline V2 - registra o Service Worker assim que possível.
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=7').catch(console.warn));
+  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=8').catch(console.warn));
 }
 </script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
@@ -520,21 +520,36 @@ async function carregarPix(){
 const TGR_HISTORICO_URL = 'https://script.google.com/macros/s/AKfycbzJQvbFk2a4nQfE_v_-atHoNDQCpiovzGXzhwoKHWcrPXFFOHd-1IHEmAA8UNWgvQji/exec';
 let tgrDataSelecionada = '';
 let tgrCargaNumero = 0;
+// URL publica canonica: nunca usar o endereco de conta /macros/u/1/s/.
+function tgrURLPublica(url){
+  return String(url).replace(/\/macros\/u\/\d+\/s\//,'/macros/s/');
+}
 function tgrHistoricoJSONP(data){
-  return new Promise((resolve,reject)=>{
-    const callback='tgrHistoricoCb'+Math.random().toString(36).slice(2);
-    const script=document.createElement('script');
-    let concluido=false;
-    const timer=setTimeout(()=>finalizar(new Error('Tempo esgotado ao consultar o histórico.')),30000);
-    function finalizar(err,res){
-      if(concluido)return;concluido=true;clearTimeout(timer);delete window[callback];script.remove();
-      err?reject(err):resolve(res);
-    }
-    window[callback]=res=>res&&res.sucesso?finalizar(null,res):finalizar(new Error(res?.erro||'Resposta inválida do Apps Script.'));
-    script.onerror=()=>finalizar(new Error('Não foi possível conectar ao Apps Script.'));
-    script.src=TGR_HISTORICO_URL+'?data='+encodeURIComponent(data)+'&callback='+callback+'&v='+Date.now();
-    document.head.appendChild(script);
-  });
+  // O Google pode redirecionar para /u/1 quando ha varias contas conectadas.
+  // Tenta primeiro a URL publica com authuser=0 e, se necessario, sem authuser.
+  const base=tgrURLPublica(TGR_HISTORICO_URL);
+  const tentativas=[base+'?authuser=0',base+'?'];
+  function solicitar(prefixo){
+    return new Promise((resolve,reject)=>{
+      const callback='tgrHistoricoCb'+Math.random().toString(36).slice(2);
+      const script=document.createElement('script');
+      let concluido=false;
+      const timer=setTimeout(()=>finalizar(new Error('Tempo esgotado ao consultar o historico.')),30000);
+      function finalizar(err,res){
+        if(concluido)return;concluido=true;clearTimeout(timer);
+        try{delete window[callback];}catch(_){window[callback]=undefined;}
+        script.remove();err?reject(err):resolve(res);
+      }
+      window[callback]=res=>res&&res.sucesso?finalizar(null,res):finalizar(new Error(res?.erro||'Resposta invalida do Apps Script.'));
+      script.onerror=()=>finalizar(new Error('Apps Script retornou erro ao carregar (possivel redirecionamento de conta Google).'));
+      script.referrerPolicy='no-referrer';
+      script.src=prefixo+(prefixo.endsWith('?')?'':'&')+'data='+encodeURIComponent(data)+'&callback='+encodeURIComponent(callback)+'&v='+Date.now();
+      document.head.appendChild(script);
+    });
+  }
+  return solicitar(tentativas[0]).catch(primeiro=>solicitar(tentativas[1]).catch(segundo=>{
+    throw new Error('Nao foi possivel consultar a URL publica do Apps Script. '+segundo.message+' (primeira tentativa: '+primeiro.message+')');
+  }));
 }
 async function tgrObterHistorico(data){
   const chave='tgr_historico_operacao_v1_'+data;
@@ -1516,7 +1531,7 @@ document.addEventListener('DOMContentLoaded',function(){
     b.disabled=true;b.classList.remove('pronto','falha');b.classList.add('baixando');b.textContent='BAIXANDO DADOS...';
     if(box)box.style.display='block'; if(barra)barra.style.width='2%';
     try{
-      if('serviceWorker' in navigator){await navigator.serviceWorker.register('./sw.js?v=7');await navigator.serviceWorker.ready;}
+      if('serviceWorker' in navigator){await navigator.serviceWorker.register('./sw.js?v=8');await navigator.serviceWorker.ready;}
       const cache=await caches.open(CACHE);
       await guardar(cache,'./index.html','aplicativo',8);
       await guardar(cache,'./rotas.csv','rotas',18);
