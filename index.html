@@ -216,7 +216,7 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
 .fechamentoBolinhaTGR{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px}
 .fechamentoRaioTGR{border:1px dashed #bbb;background:#fafafa;border-radius:11px;padding:15px;text-align:center;margin-top:9px}
 .fechamentoRaioTGR strong{display:block;font-size:13px}.fechamentoRaioTGR p{color:#777;font-size:12px;margin:7px 0 0}
-.fechamentoVoltarTGR{width:100%;margin-top:20px;border:0;background:#333;color:#fff;padding:13px;border-radius:9px;font-weight:800;cursor:pointer}
+.fechamentoConfirmarTGR{width:100%;margin-top:18px;border:0;background:#148a2a;color:white;padding:13px;border-radius:9px;font-weight:800;cursor:pointer}.fechamentoConfirmarTGR:disabled{opacity:.5;cursor:wait}.fechamentoAvisoTGR{font-size:12px;color:#a32727;text-align:center;margin-top:10px;line-height:1.4}.fechamentoEncerradaTGR{background:#e6f5e9;color:#146c2e;border-radius:9px;padding:13px;font-weight:800;text-align:center;margin:0 0 15px}.fechamentoVoltarTGR{width:100%;margin-top:20px;border:0;background:#333;color:#fff;padding:13px;border-radius:9px;font-weight:800;cursor:pointer}
 @media(max-width:600px){#abrirFechamentoTGR{top:44px;right:8px}}
 </style>
 <script>
@@ -293,7 +293,7 @@ function tgrAutenticarFirebase(){return tgrAuthPromise||(tgrAuthPromise=tgrAuth.
    </div>
    <div class="fechamentoSecaoTGR">Aderência de Raio</div>
    <div class="fechamentoRaioTGR"><strong>—</strong><p>Informação ainda não disponível</p></div>
-   <button type="button" class="fechamentoVoltarTGR" id="fechVoltarTGR">VOLTAR AO MAPA</button>
+   <div id="fechStatusTGR" aria-live="polite"></div><button type="button" class="fechamentoConfirmarTGR" id="fechConfirmarTGR">CONFIRMAR FINALIZAÇÃO DA ROTA</button><div id="fechAvisoTGR" class="fechamentoAvisoTGR" aria-live="polite"></div><button type="button" class="fechamentoVoltarTGR" id="fechVoltarTGR">VOLTAR AO MAPA</button>
   </div>
  </div>
 </section>
@@ -1596,45 +1596,77 @@ document.addEventListener('DOMContentLoaded',function(){
 <div id="tgrToast" role="status" aria-live="polite"></div>
 
 <script>
-/* Resumo somente de leitura: não altera status nem encerra a rota no servidor. */
+/* Encerramento por data + placa, salvo no Firebase e restaurado ao entrar na rota. */
 (function(){
- const btn=document.getElementById('abrirFechamentoTGR');
- const tela=document.getElementById('telaFechamentoTGR');
- const voltar=document.getElementById('fechVoltarTGR');
  const el=id=>document.getElementById(id);
- function atualizarVisibilidade(){
-   btn.style.display=(document.getElementById('telaInicial').style.display==='none' && document.getElementById('placa').value)?'block':'none';
+ const btn=el('abrirFechamentoTGR'),tela=el('telaFechamentoTGR'),voltar=el('fechVoltarTGR'),confirmar=el('fechConfirmarTGR');
+ let encerrada=false, assinatura='',consultaNumero=0;
+ const chave=()=>typeof tgrDataProgramacao==='function'?tgrDataProgramacao()+'|'+el('placa').value:'';
+ const docRef=()=>tgrDb.collection('rotas_finalizadas').doc(chave().split('|').map(encodeURIComponent).join('~'));
+ function interfaceEncerrada(){
+   el('fechStatusTGR').innerHTML=encerrada?'<div class="fechamentoEncerradaTGR">✓ ROTA JÁ FINALIZADA</div>':'';
+   confirmar.style.display=encerrada?'none':'block';
+   voltar.style.display=encerrada?'none':'block';
+   btn.textContent=encerrada?'ROTA FINALIZADA':'FINALIZAÇÃO DE ROTA';
+   btn.style.background=encerrada?'#148a2a':'#c00000';
  }
+ function atualizarVisibilidade(){btn.style.display=(el('telaInicial').style.display==='none'&&el('placa').value)?'block':'none';}
  function abrir(){
-   const placa=document.getElementById('placa').value;
+   const placa=el('placa').value;
    if(!placa||typeof dados==='undefined'||typeof getStatus!=='function')return;
-   const itens=dados.filter(p=>p.rota===placa);
-   const cont={atendido:0,devolvido:0,pendente:0,repasse:0,em_atendimento:0};
+   const itens=dados.filter(p=>p.rota===placa),cont={atendido:0,devolvido:0,pendente:0,repasse:0,em_atendimento:0};
    itens.forEach(p=>{const st=getStatus(p);cont[st]===undefined?cont.pendente++:cont[st]++;});
-   const total=itens.length, andamento=cont.repasse+cont.em_atendimento;
-   const pct=total?cont.atendido/total*100:0;
+   const total=itens.length,andamento=cont.repasse+cont.em_atendimento,pct=total?cont.atendido/total*100:0;
    const data=typeof tgrDataProgramacao==='function'?tgrDataProgramacao():'';
    el('fechDataTGR').textContent=/^\d{4}-\d{2}-\d{2}$/.test(data)?data.split('-').reverse().join('/'):data||'—';
    el('fechPlacaTGR').textContent=placa;
    el('fechMotoristaTGR').textContent=itens.find(p=>p.motorista)?.motorista||'Não informado';
    el('fechPercentTGR').textContent=pct.toLocaleString('pt-BR',{maximumFractionDigits:1})+'%';
-   el('fechAtendidosTGR').textContent=cont.atendido;
-   el('fechPendentesTGR').textContent=cont.pendente;
-   el('fechDevolvidosTGR').textContent=cont.devolvido;
-   el('fechAndamentoTGR').textContent=andamento;
-   el('fechTotalTGR').textContent=total;
+   for(const [id,n] of [['fechAtendidosTGR',cont.atendido],['fechPendentesTGR',cont.pendente],['fechDevolvidosTGR',cont.devolvido],['fechAndamentoTGR',andamento],['fechTotalTGR',total]])el(id).textContent=n;
    const fatias=[['#178e40',cont.atendido],['#c62828',cont.devolvido],['#f2a900',andamento],['#b3b3b3',cont.pendente]];
    let acc=0;const segmentos=[];
    for(const [cor,n] of fatias){if(!n||!total)continue;const ini=acc;acc+=n/total*100;segmentos.push(cor+' '+ini.toFixed(4)+'% '+acc.toFixed(4)+'%');}
    el('fechPizzaTGR').style.background=segmentos.length?'conic-gradient('+segmentos.join(',')+')':'#dedede';
-   tela.classList.add('aberta');
+   interfaceEncerrada();tela.classList.add('aberta');
  }
+ async function consultar(){
+   const atual=chave(),numero=++consultaNumero;
+   if(!el('placa').value)return;
+   assinatura=atual;
+   encerrada=localStorage.getItem('tgr_rota_finalizada|'+atual)==='1';
+   interfaceEncerrada();
+   if(encerrada){abrir();}
+   if(!navigator.onLine)return;
+   try{
+     await tgrAutenticarFirebase();
+     const snap=await docRef().get({source:'server'});
+     if(numero!==consultaNumero||atual!==chave())return;
+     encerrada=snap.exists&&snap.data()?.finalizada===true;
+     if(encerrada)localStorage.setItem('tgr_rota_finalizada|'+atual,'1');
+     else localStorage.removeItem('tgr_rota_finalizada|'+atual);
+     interfaceEncerrada();if(encerrada)abrir();
+   }catch(e){console.warn('Consulta de encerramento indisponível:',e);if(numero===consultaNumero)el('fechAvisoTGR').textContent='Não foi possível verificar a finalização no servidor.';}
+ }
+ confirmar.addEventListener('click',async()=>{
+   if(encerrada||!el('placa').value)return;
+   if(!navigator.onLine){el('fechAvisoTGR').textContent='É necessário estar conectado para finalizar a rota.';return;}
+   if(!window.confirm('Confirma a finalização desta rota? A tela de finalização ficará fixa sempre que esta rota for aberta.'))return;
+   const atual=chave();confirmar.disabled=true;el('fechAvisoTGR').textContent='Salvando finalização...';
+   try{
+     await tgrAutenticarFirebase();
+     await docRef().set({finalizada:true,dataRota:tgrDataProgramacao(),rota:el('placa').value,finalizadaEm:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
+     if(chave()!==atual)return;
+     localStorage.setItem('tgr_rota_finalizada|'+atual,'1');encerrada=true;el('fechAvisoTGR').textContent='';abrir();
+   }catch(e){el('fechAvisoTGR').textContent='Não foi possível salvar no servidor: '+e.message;}
+   finally{confirmar.disabled=false;}
+ });
  btn.addEventListener('click',abrir);
- voltar.addEventListener('click',()=>tela.classList.remove('aberta'));
- document.getElementById('placa').addEventListener('change',()=>setTimeout(atualizarVisibilidade,0));
- document.getElementById('entrarRota').addEventListener('click',()=>setTimeout(atualizarVisibilidade,1200));
- document.getElementById('trocarRota').addEventListener('click',()=>{tela.classList.remove('aberta');setTimeout(atualizarVisibilidade,0)});
- const obs=new MutationObserver(atualizarVisibilidade);obs.observe(document.getElementById('telaInicial'),{attributes:true,attributeFilter:['style']});
+ voltar.addEventListener('click',()=>{if(!encerrada)tela.classList.remove('aberta');});
+ el('placa').addEventListener('change',()=>{tela.classList.remove('aberta');encerrada=false;el('fechAvisoTGR').textContent='';atualizarVisibilidade();});
+ el('entrarRota').addEventListener('click',()=>setTimeout(()=>{atualizarVisibilidade();if(el('telaInicial').style.display==='none')consultar();},1200));
+ el('trocarRota').addEventListener('click',()=>{tela.classList.remove('aberta');consultaNumero++;atualizarVisibilidade();});
+ const obs=new MutationObserver(()=>{atualizarVisibilidade();if(el('telaInicial').style.display==='none'&&el('placa').value&&assinatura!==chave())consultar();});
+ obs.observe(el('telaInicial'),{attributes:true,attributeFilter:['style']});
  atualizarVisibilidade();
 })();
 </script>
