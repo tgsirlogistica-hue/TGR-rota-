@@ -1610,11 +1610,36 @@ document.addEventListener('DOMContentLoaded',function(){
    const placa=el('placa').value;
    return placa&&typeof dados!=='undefined'?dados.filter(p=>p.rota===placa):[];
  }
+ // Prioriza o status confirmado no Firebase, sem deixar uma fila local antiga
+ // esconder entregas que já foram concluídas em outro dispositivo.
+ let statusServidor=new Map(), servidorCarregado=false, assinaturaServidor='';
  function contagem(){
    const cont={atendido:0,devolvido:0,pendente:0,repasse:0,em_atendimento:0};
    const itens=itensDaRota();
-   for(const p of itens){const st=getStatus(p);if(Object.prototype.hasOwnProperty.call(cont,st))cont[st]++;else cont.pendente++;}
+   const usarServidor=servidorCarregado&&assinaturaServidor===chave();
+   for(const p of itens){
+     const chavePedido=[String(p.pedido).trim(),String(p.cliente).trim()].join('|');
+     const st=usarServidor&&statusServidor.has(chavePedido)?statusServidor.get(chavePedido):getStatus(p);
+     if(Object.prototype.hasOwnProperty.call(cont,st))cont[st]++;else cont.pendente++;
+   }
    return {itens,cont,total:itens.length};
+ }
+ async function consultarAtendimentosServidor(atual){
+   if(!navigator.onLine)return;
+   try{
+     await tgrAutenticarFirebase();
+     const partes=atual.split('|'),data=partes[0],placa=partes.slice(1).join('|');
+     const snap=await tgrDb.collection('entregas').where('dataRota','==',data).where('rota','==',placa).get({source:'server'});
+     if(chave()!==atual)return;
+     const mapa=new Map();
+     snap.forEach(doc=>{
+       const x=doc.data();
+       const st={ATENDIDO:'atendido',DEVOLUCAO:'devolvido',REPASSE:'repasse',EM_ATENDIMENTO:'em_atendimento',PENDENTE:'pendente'}[String(x.status||'').toUpperCase()]||'pendente';
+       mapa.set([String(x.pedido).trim(),String(x.clienteCodigo).trim()].join('|'),st);
+     });
+     statusServidor=mapa;servidorCarregado=true;assinaturaServidor=atual;
+     verificar();
+   }catch(e){console.warn('Não foi possível conferir os atendimentos da rota:',e);}
  }
  function concluida(res){return res.total>0&&res.cont.atendido+res.cont.devolvido===res.total;}
  function abrir(){
@@ -1660,6 +1685,7 @@ document.addEventListener('DOMContentLoaded',function(){
      const atual=chave();
      if(assinatura!==atual){consultar();return;}
      if(encerrada){if(!tela.classList.contains('aberta'))abrir();return;}
+     if(navigator.onLine&&!servidorCarregado)return;
      if(concluida(contagem())){
        abrir();
        if(navigator.onLine)registrarAutomaticamente(atual);
@@ -1671,6 +1697,8 @@ document.addEventListener('DOMContentLoaded',function(){
    const atual=chave(),numero=++consultaNumero;
    if(!el('placa').value)return;
    assinatura=atual;
+   statusServidor=new Map();servidorCarregado=false;assinaturaServidor='';
+   consultarAtendimentosServidor(atual);
    encerrada=localStorage.getItem('tgr_rota_finalizada|'+atual)==='1';
    if(encerrada)abrir();
    if(!navigator.onLine){verificar();return;}
@@ -1687,7 +1715,7 @@ document.addEventListener('DOMContentLoaded',function(){
    }catch(e){console.warn('Consulta de encerramento indisponível:',e);verificar();}
  }
  el('placa').addEventListener('change',()=>{
-   tela.classList.remove('aberta');encerrada=false;assinatura='';consultaNumero++;
+   tela.classList.remove('aberta');encerrada=false;assinatura='';consultaNumero++;statusServidor.clear();servidorCarregado=false;
    el('fechAvisoTGR').textContent='';
  });
  el('entrarRota').addEventListener('click',()=>setTimeout(verificar,1200));
@@ -1696,8 +1724,10 @@ document.addEventListener('DOMContentLoaded',function(){
  obs.observe(el('telaInicial'),{attributes:true,attributeFilter:['style']});
  document.addEventListener('visibilitychange',()=>{if(!document.hidden)verificar();});
  window.addEventListener('online',verificar);
- // O status pode mudar pelo Firebase ou por atendimento local: monitorar ambos.
+ // Reconsulta periódica para reconhecer rotas concluídas antes desta atualização,
+ // inclusive quando os atendimentos foram feitos em outro aparelho.
  setInterval(verificar,1500);
+ setInterval(()=>{if(el('telaInicial').style.display==='none'&&!encerrada&&el('placa').value)consultarAtendimentosServidor(chave());},12000);
 })();
 </script>
 </body>
