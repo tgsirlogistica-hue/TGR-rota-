@@ -1596,30 +1596,34 @@ document.addEventListener('DOMContentLoaded',function(){
 <div id="tgrToast" role="status" aria-live="polite"></div>
 
 <script>
-/* Encerramento por data + placa, salvo no Firebase e restaurado ao entrar na rota. */
+/* Fechamento automático: todos os pedidos devem estar atendidos ou devolvidos. */
 (function(){
  const el=id=>document.getElementById(id);
- const btn=el('abrirFechamentoTGR'),tela=el('telaFechamentoTGR'),voltar=el('fechVoltarTGR'),confirmar=el('fechConfirmarTGR');
- let encerrada=false, assinatura='',consultaNumero=0;
+ const tela=el('telaFechamentoTGR'),btn=el('abrirFechamentoTGR');
+ let encerrada=false,assinatura='',consultaNumero=0,gravando=false,verificando=false;
  const chave=()=>typeof tgrDataProgramacao==='function'?tgrDataProgramacao()+'|'+el('placa').value:'';
  const docRef=()=>tgrDb.collection('rotas_finalizadas').doc(chave().split('|').map(encodeURIComponent).join('~'));
- function interfaceEncerrada(){
-   el('fechStatusTGR').innerHTML=encerrada?'<div class="fechamentoEncerradaTGR">✓ ROTA JÁ FINALIZADA</div>':'';
-   confirmar.style.display=encerrada?'none':'block';
-   voltar.style.display=encerrada?'none':'block';
-   btn.textContent=encerrada?'ROTA FINALIZADA':'FINALIZAÇÃO DE ROTA';
-   btn.style.background=encerrada?'#148a2a':'#c00000';
- }
- function atualizarVisibilidade(){btn.style.display=(el('telaInicial').style.display==='none'&&el('placa').value)?'block':'none';}
- function abrir(){
+ btn.style.display='none';
+ el('fechConfirmarTGR')?.remove();
+ el('fechVoltarTGR')?.remove();
+ function itensDaRota(){
    const placa=el('placa').value;
-   if(!placa||typeof dados==='undefined'||typeof getStatus!=='function')return;
-   const itens=dados.filter(p=>p.rota===placa),cont={atendido:0,devolvido:0,pendente:0,repasse:0,em_atendimento:0};
-   itens.forEach(p=>{const st=getStatus(p);cont[st]===undefined?cont.pendente++:cont[st]++;});
-   const total=itens.length,andamento=cont.repasse+cont.em_atendimento,pct=total?cont.atendido/total*100:0;
-   const data=typeof tgrDataProgramacao==='function'?tgrDataProgramacao():'';
+   return placa&&typeof dados!=='undefined'?dados.filter(p=>p.rota===placa):[];
+ }
+ function contagem(){
+   const cont={atendido:0,devolvido:0,pendente:0,repasse:0,em_atendimento:0};
+   const itens=itensDaRota();
+   for(const p of itens){const st=getStatus(p);if(Object.prototype.hasOwnProperty.call(cont,st))cont[st]++;else cont.pendente++;}
+   return {itens,cont,total:itens.length};
+ }
+ function concluida(res){return res.total>0&&res.cont.atendido+res.cont.devolvido===res.total;}
+ function abrir(){
+   if(!el('placa').value||typeof getStatus!=='function')return;
+   const {itens,cont,total}=contagem(),andamento=cont.repasse+cont.em_atendimento;
+   const pct=total?cont.atendido/total*100:0;
+   const data=tgrDataProgramacao();
    el('fechDataTGR').textContent=/^\d{4}-\d{2}-\d{2}$/.test(data)?data.split('-').reverse().join('/'):data||'—';
-   el('fechPlacaTGR').textContent=placa;
+   el('fechPlacaTGR').textContent=el('placa').value;
    el('fechMotoristaTGR').textContent=itens.find(p=>p.motorista)?.motorista||'Não informado';
    el('fechPercentTGR').textContent=pct.toLocaleString('pt-BR',{maximumFractionDigits:1})+'%';
    for(const [id,n] of [['fechAtendidosTGR',cont.atendido],['fechPendentesTGR',cont.pendente],['fechDevolvidosTGR',cont.devolvido],['fechAndamentoTGR',andamento],['fechTotalTGR',total]])el(id).textContent=n;
@@ -1627,47 +1631,73 @@ document.addEventListener('DOMContentLoaded',function(){
    let acc=0;const segmentos=[];
    for(const [cor,n] of fatias){if(!n||!total)continue;const ini=acc;acc+=n/total*100;segmentos.push(cor+' '+ini.toFixed(4)+'% '+acc.toFixed(4)+'%');}
    el('fechPizzaTGR').style.background=segmentos.length?'conic-gradient('+segmentos.join(',')+')':'#dedede';
-   interfaceEncerrada();tela.classList.add('aberta');
+   el('fechStatusTGR').innerHTML='<div class="fechamentoEncerradaTGR">✓ ROTA FINALIZADA</div>';
+   tela.classList.add('aberta');
+ }
+ async function registrarAutomaticamente(atual){
+   if(gravando||encerrada||!navigator.onLine||chave()!==atual)return;
+   gravando=true;
+   el('fechAvisoTGR').textContent='Sincronizando finalização...';
+   try{
+     await tgrAutenticarFirebase();
+     if(chave()!==atual)return;
+     await docRef().set({finalizada:true,dataRota:tgrDataProgramacao(),rota:el('placa').value,finalizadaEm:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
+     if(chave()!==atual)return;
+     encerrada=true;
+     localStorage.setItem('tgr_rota_finalizada|'+atual,'1');
+     el('fechAvisoTGR').textContent='';
+     abrir();
+   }catch(e){
+     console.warn('Não foi possível sincronizar a finalização automática:',e);
+     if(chave()===atual)el('fechAvisoTGR').textContent='Rota concluída. Aguardando sincronização com o servidor.';
+   }finally{gravando=false;}
+ }
+ function verificar(){
+   if(verificando)return;
+   verificando=true;
+   try{
+     if(el('telaInicial').style.display!=='none'||!el('placa').value||typeof getStatus!=='function')return;
+     const atual=chave();
+     if(assinatura!==atual){consultar();return;}
+     if(encerrada){if(!tela.classList.contains('aberta'))abrir();return;}
+     if(concluida(contagem())){
+       abrir();
+       if(navigator.onLine)registrarAutomaticamente(atual);
+       else el('fechAvisoTGR').textContent='Rota concluída neste aparelho. A finalização será sincronizada quando houver internet.';
+     }
+   }finally{verificando=false;}
  }
  async function consultar(){
    const atual=chave(),numero=++consultaNumero;
    if(!el('placa').value)return;
    assinatura=atual;
    encerrada=localStorage.getItem('tgr_rota_finalizada|'+atual)==='1';
-   interfaceEncerrada();
-   if(encerrada){abrir();}
-   if(!navigator.onLine)return;
+   if(encerrada)abrir();
+   if(!navigator.onLine){verificar();return;}
    try{
      await tgrAutenticarFirebase();
      const snap=await docRef().get({source:'server'});
      if(numero!==consultaNumero||atual!==chave())return;
      encerrada=snap.exists&&snap.data()?.finalizada===true;
-     if(encerrada)localStorage.setItem('tgr_rota_finalizada|'+atual,'1');
-     else localStorage.removeItem('tgr_rota_finalizada|'+atual);
-     interfaceEncerrada();if(encerrada)abrir();
-   }catch(e){console.warn('Consulta de encerramento indisponível:',e);if(numero===consultaNumero)el('fechAvisoTGR').textContent='Não foi possível verificar a finalização no servidor.';}
+     if(encerrada){localStorage.setItem('tgr_rota_finalizada|'+atual,'1');abrir();}
+     else{
+       localStorage.removeItem('tgr_rota_finalizada|'+atual);
+       verificar();
+     }
+   }catch(e){console.warn('Consulta de encerramento indisponível:',e);verificar();}
  }
- confirmar.addEventListener('click',async()=>{
-   if(encerrada||!el('placa').value)return;
-   if(!navigator.onLine){el('fechAvisoTGR').textContent='É necessário estar conectado para finalizar a rota.';return;}
-   if(!window.confirm('Confirma a finalização desta rota? A tela de finalização ficará fixa sempre que esta rota for aberta.'))return;
-   const atual=chave();confirmar.disabled=true;el('fechAvisoTGR').textContent='Salvando finalização...';
-   try{
-     await tgrAutenticarFirebase();
-     await docRef().set({finalizada:true,dataRota:tgrDataProgramacao(),rota:el('placa').value,finalizadaEm:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
-     if(chave()!==atual)return;
-     localStorage.setItem('tgr_rota_finalizada|'+atual,'1');encerrada=true;el('fechAvisoTGR').textContent='';abrir();
-   }catch(e){el('fechAvisoTGR').textContent='Não foi possível salvar no servidor: '+e.message;}
-   finally{confirmar.disabled=false;}
+ el('placa').addEventListener('change',()=>{
+   tela.classList.remove('aberta');encerrada=false;assinatura='';consultaNumero++;
+   el('fechAvisoTGR').textContent='';
  });
- btn.addEventListener('click',abrir);
- voltar.addEventListener('click',()=>{if(!encerrada)tela.classList.remove('aberta');});
- el('placa').addEventListener('change',()=>{tela.classList.remove('aberta');encerrada=false;el('fechAvisoTGR').textContent='';atualizarVisibilidade();});
- el('entrarRota').addEventListener('click',()=>setTimeout(()=>{atualizarVisibilidade();if(el('telaInicial').style.display==='none')consultar();},1200));
- el('trocarRota').addEventListener('click',()=>{tela.classList.remove('aberta');consultaNumero++;atualizarVisibilidade();});
- const obs=new MutationObserver(()=>{atualizarVisibilidade();if(el('telaInicial').style.display==='none'&&el('placa').value&&assinatura!==chave())consultar();});
+ el('entrarRota').addEventListener('click',()=>setTimeout(verificar,1200));
+ el('trocarRota').addEventListener('click',()=>{tela.classList.remove('aberta');assinatura='';encerrada=false;consultaNumero++;});
+ const obs=new MutationObserver(()=>{if(el('telaInicial').style.display==='none')verificar();});
  obs.observe(el('telaInicial'),{attributes:true,attributeFilter:['style']});
- atualizarVisibilidade();
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden)verificar();});
+ window.addEventListener('online',verificar);
+ // O status pode mudar pelo Firebase ou por atendimento local: monitorar ambos.
+ setInterval(verificar,1500);
 })();
 </script>
 </body>
