@@ -189,6 +189,13 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
 .pedidosBuscaInfo{font-size:11px;color:#666;margin-top:5px}
 .pedidos.minimizada .pedidosBusca{display:none}
 .pedidosSemResultado{display:none;padding:14px;text-align:center;color:#777;font-size:12px}
+
+/* GPS TGR: controle centralizado e busca compacta fixa ao rolar a lista */
+.pedidosCabecalho{justify-content:center;padding:4px 0;margin-bottom:0;min-height:31px}
+.togglePedidos{padding:6px 12px;font-size:11px;line-height:1.2}
+.pedidosBusca{position:sticky;top:35px;z-index:19;background:#fff;margin:0 0 7px;padding:4px 1px 6px;border-bottom:1px solid #eee}
+.pedidosBusca input{height:32px;padding:5px 10px;font-size:12px;border-radius:7px}
+.pedidosBuscaInfo{font-size:10px;margin-top:3px}
 </style>
 <script>
 // TGR Offline V2 - registra o Service Worker assim que possível.
@@ -1211,7 +1218,7 @@ function atualizarEstadoListaPedidos(){
   box.classList.toggle('minimizada',pedidosMinimizados);
   const botao=box.querySelector('.togglePedidos');
   if(botao){
-    botao.textContent=pedidosMinimizados?'MOSTRAR':'MINIMIZAR';
+    botao.textContent=pedidosMinimizados?'MOSTRAR ENTREGAS':'MINIMIZAR';
     botao.setAttribute('aria-expanded',String(!pedidosMinimizados));
   }
 }
@@ -1263,8 +1270,8 @@ function renderPedidos(placa){
   if(!placa){box.style.display='none';box.innerHTML='';return;}
   const itens=itensDaRotaOrdenados(placa);
   box.innerHTML='<div class="pedidosCabecalho">'+
-    '<div class="pedidosTitulo">Pedidos da rota — sequência de atendimento</div>'+
-    '<button type="button" class="togglePedidos" aria-expanded="'+String(!pedidosMinimizados)+'">'+(pedidosMinimizados?'MOSTRAR':'MINIMIZAR')+'</button>'+
+    
+    '<button type="button" class="togglePedidos" aria-expanded="'+String(!pedidosMinimizados)+'">'+(pedidosMinimizados?'MOSTRAR ENTREGAS':'MINIMIZAR')+'</button>'+
     '</div>'+
     '<div class="pedidosBusca"><input id="pesquisaPedidosTGR" type="search" autocomplete="off" placeholder="Pesquisar nome, fantasia, código ou pedido" aria-label="Pesquisar pedidos da rota"><div class="pedidosBuscaInfo"></div></div>'+
     '<div class="pedidosConteudo">'+itens.map((p,i)=>{
