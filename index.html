@@ -736,6 +736,9 @@ let layer=L.layerGroup().addTo(map);
 let marcadoresPorPedido=new Map();
 let pedidosMinimizados=true;
 let pesquisaPedidosTGR='';
+// Posição apenas na memória desta página: reiniciar/atualizar começa do topo.
+let posicaoListaPedidosTGR=0;
+let placaPosicaoListaTGR='';
 
 const select=document.getElementById('placa');
 
@@ -743,6 +746,8 @@ map.on('click',()=>{
   if(select.value && !pedidosMinimizados){
     // Primeiro toque no mapa: apenas minimiza a lista.
     // O popup do cliente selecionado permanece aberto.
+    const caixa=document.getElementById('pedidos');
+    if(caixa)posicaoListaPedidosTGR=caixa.scrollTop;
     pedidosMinimizados=true;
     atualizarEstadoListaPedidos();
     return;
@@ -1224,11 +1229,13 @@ function atualizarEstadoListaPedidos(){
 }
 
 function alternarListaPedidos(){
+  const box=document.getElementById('pedidos');
+  if(box && !pedidosMinimizados) posicaoListaPedidosTGR=box.scrollTop;
   pedidosMinimizados=!pedidosMinimizados;
   atualizarEstadoListaPedidos();
   if(!pedidosMinimizados){
-    const campo=document.getElementById('pesquisaPedidosTGR');
-    if(campo)campo.focus();
+    // Restaurar depois de remover a classe que desativa a rolagem.
+    requestAnimationFrame(()=>{if(box && !pedidosMinimizados)box.scrollTop=posicaoListaPedidosTGR;});
   }
 }
 function normalizarBuscaTGR(valor){
@@ -1267,6 +1274,12 @@ function numeroParada(p,i){
 
 function renderPedidos(placa){
   const box=document.getElementById('pedidos');
+  if(placa!==placaPosicaoListaTGR){
+    placaPosicaoListaTGR=placa;
+    posicaoListaPedidosTGR=0;
+  }else if(!pedidosMinimizados){
+    posicaoListaPedidosTGR=box.scrollTop;
+  }
   if(!placa){box.style.display='none';box.innerHTML='';return;}
   const itens=itensDaRotaOrdenados(placa);
   box.innerHTML='<div class="pedidosCabecalho">'+
@@ -1302,6 +1315,8 @@ function renderPedidos(placa){
     campoPesquisa.addEventListener('click',ev=>ev.stopPropagation());
   }
   filtrarPedidosTGR(itens);
+  if(!pedidosMinimizados)box.scrollTop=posicaoListaPedidosTGR;
+  box.onscroll=()=>{if(!pedidosMinimizados)posicaoListaPedidosTGR=box.scrollTop;};
   box.querySelectorAll('.pedidoItem').forEach(item=>{
     item.onclick=()=>focarPedido(itens[Number(item.dataset.i)]);
   });
