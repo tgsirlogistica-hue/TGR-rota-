@@ -1600,9 +1600,8 @@ document.addEventListener('DOMContentLoaded',function(){
 (function(){
  const el=id=>document.getElementById(id);
  const tela=el('telaFechamentoTGR'),btn=el('abrirFechamentoTGR');
- let encerrada=false,assinatura='',consultaNumero=0,gravando=false,verificando=false,visualizandoRota=false;
+ let encerrada=false,assinatura='',verificando=false,visualizandoRota=false;
  const chave=()=>typeof tgrDataProgramacao==='function'?tgrDataProgramacao()+'|'+el('placa').value:'';
- const docRef=()=>tgrDb.collection('rotas_finalizadas').doc(chave().split('|').map(encodeURIComponent).join('~'));
  btn.style.display='none';
  el('fechConfirmarTGR')?.remove();
  // A rota permanece finalizada; o botão apenas permite consultar o mapa.
@@ -1659,77 +1658,38 @@ document.addEventListener('DOMContentLoaded',function(){
    el('fechStatusTGR').innerHTML='<div class="fechamentoEncerradaTGR">✓ ROTA FINALIZADA</div>';
    if(!visualizandoRota)tela.classList.add('aberta');
  }
- async function registrarAutomaticamente(atual){
-   if(gravando||encerrada||!navigator.onLine||chave()!==atual)return;
-   gravando=true;
-   el('fechAvisoTGR').textContent='Sincronizando finalização...';
-   try{
-     await tgrAutenticarFirebase();
-     if(chave()!==atual)return;
-     await docRef().set({finalizada:true,dataRota:tgrDataProgramacao(),rota:el('placa').value,finalizadaEm:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
-     if(chave()!==atual)return;
-     encerrada=true;
-     localStorage.setItem('tgr_rota_finalizada|'+atual,'1');
-     el('fechAvisoTGR').textContent='';
-     abrir();
-   }catch(e){
-     console.warn('Não foi possível sincronizar a finalização automática:',e);
-     if(chave()===atual)el('fechAvisoTGR').textContent='Rota concluída. Aguardando sincronização com o servidor.';
-   }finally{gravando=false;}
- }
  function verificar(){
    if(verificando)return;
    verificando=true;
    try{
      if(el('telaInicial').style.display!=='none'||!el('placa').value||typeof getStatus!=='function')return;
      const atual=chave();
-     if(assinatura!==atual){consultar();return;}
-     if(encerrada){if(!visualizandoRota&&!tela.classList.contains('aberta'))abrir();return;}
+     if(assinatura!==atual){
+       assinatura=atual;
+       statusServidor=new Map();servidorCarregado=false;assinaturaServidor='';
+       consultarAtendimentosServidor(atual);
+     }
      if(navigator.onLine&&!servidorCarregado)return;
-     if(concluida(contagem())){
-       abrir();
-       if(navigator.onLine)registrarAutomaticamente(atual);
-       else el('fechAvisoTGR').textContent='Rota concluída neste aparelho. A finalização será sincronizada quando houver internet.';
-     }
+     encerrada=concluida(contagem());
+     el('fechAvisoTGR').textContent='';
+     if(encerrada&&!visualizandoRota&&!tela.classList.contains('aberta'))abrir();
    }finally{verificando=false;}
- }
- async function consultar(){
-   const atual=chave(),numero=++consultaNumero;
-   if(!el('placa').value)return;
-   assinatura=atual;
-   statusServidor=new Map();servidorCarregado=false;assinaturaServidor='';
-   consultarAtendimentosServidor(atual);
-   encerrada=localStorage.getItem('tgr_rota_finalizada|'+atual)==='1';
-   if(encerrada&&!visualizandoRota)abrir();
-   if(!navigator.onLine){verificar();return;}
-   try{
-     await tgrAutenticarFirebase();
-     const snap=await docRef().get({source:'server'});
-     if(numero!==consultaNumero||atual!==chave())return;
-     encerrada=snap.exists&&snap.data()?.finalizada===true;
-     if(encerrada){localStorage.setItem('tgr_rota_finalizada|'+atual,'1');if(!visualizandoRota)abrir();}
-     else{
-       localStorage.removeItem('tgr_rota_finalizada|'+atual);
-       verificar();
-     }
-   }catch(e){console.warn('Consulta de encerramento indisponível:',e);verificar();}
  }
  el('fechVerRotaConcluidaTGR').addEventListener('click',()=>{visualizandoRota=true;tela.classList.remove('aberta');btn.style.display='block';btn.textContent='VER RESUMO DA ROTA';});
  btn.addEventListener('click',()=>{visualizandoRota=false;abrir();btn.style.display='none';});
  el('placa').addEventListener('change',()=>{
-   visualizandoRota=false;btn.style.display='none';tela.classList.remove('aberta');encerrada=false;assinatura='';consultaNumero++;statusServidor.clear();servidorCarregado=false;
+   visualizandoRota=false;btn.style.display='none';tela.classList.remove('aberta');encerrada=false;assinatura='';statusServidor.clear();servidorCarregado=false;
    el('fechAvisoTGR').textContent='';
  });
  el('entrarRota').addEventListener('click',()=>setTimeout(verificar,1200));
- el('trocarRota').addEventListener('click',()=>{visualizandoRota=false;btn.style.display='none';tela.classList.remove('aberta');assinatura='';encerrada=false;consultaNumero++;});
+ el('trocarRota').addEventListener('click',()=>{visualizandoRota=false;btn.style.display='none';tela.classList.remove('aberta');assinatura='';encerrada=false;});
  const obs=new MutationObserver(()=>{if(el('telaInicial').style.display==='none')verificar();});
  obs.observe(el('telaInicial'),{attributes:true,attributeFilter:['style']});
  document.addEventListener('visibilitychange',()=>{if(!document.hidden)verificar();});
  window.addEventListener('online',verificar);
- // Reconsulta periódica para reconhecer rotas concluídas antes desta atualização,
- // inclusive quando os atendimentos foram feitos em outro aparelho.
+ // Reconsulta periódica dos atendimentos, inclusive os feitos em outro aparelho.
  setInterval(verificar,1500);
- setInterval(()=>{if(el('telaInicial').style.display==='none'&&!encerrada&&el('placa').value)consultarAtendimentosServidor(chave());},12000);
+ setInterval(()=>{if(el('telaInicial').style.display==='none'&&el('placa').value)consultarAtendimentosServidor(chave());},12000);
 })();
 </script>
 </body>
