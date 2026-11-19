@@ -271,6 +271,16 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
 #pedidos .pedidosCabecalho{position:sticky;top:0;z-index:50;background:#fff;min-height:37px;padding:5px 0 4px;margin:0;isolation:isolate}
 #pedidos .pedidosCabecalho::before{content:"";position:absolute;left:-2px;right:-2px;top:-2px;bottom:0;background:#fff;z-index:-1;pointer-events:none}
 #pedidos .pedidosBusca{top:37px;background:#fff}
+
+/* Pesquisa fixa: somente os cartões de entrega rolam. */
+#pedidos:not(.minimizada){display:flex!important;flex-direction:column;overflow:hidden;max-height:42vh}
+#pedidos .pedidosCabecalho{position:relative;top:auto;flex:0 0 auto;z-index:3}
+#pedidos .pedidosBusca{position:relative;top:auto;flex:0 0 auto;z-index:2;margin:0;padding:6px 2px 8px;background:#fff;border-bottom:1px solid #e5e5e5}
+#pedidos .pedidosConteudo{min-height:0;overflow-y:auto;overscroll-behavior:contain;flex:1 1 auto;padding-top:7px}
+#pedidos .pedidosBusca input{height:39px;padding:7px 11px 7px 38px;font-size:13px;border:1px solid #aeb7c2;background:#f9fafb;border-radius:9px}
+#pedidos .pedidosBusca input:focus{background:#fff;border-color:#c00000}
+#pedidos .pedidosBuscaLupa{position:absolute;left:13px;top:12px;display:flex;align-items:center;justify-content:center;width:21px;height:21px;color:#555;font-size:28px;font-family:Arial,sans-serif;line-height:1;pointer-events:none}
+#pedidos.minimizada .pedidosConteudo,#pedidos.minimizada .pedidosBusca{display:none}
 </style>
 <script>
 // TGR Offline V2 - registra o Service Worker assim que possível.
@@ -1382,7 +1392,7 @@ function renderPedidos(placa){
     
     '<button type="button" class="togglePedidos" aria-expanded="'+String(!pedidosMinimizados)+'">'+(pedidosMinimizados?'MOSTRAR ENTREGAS':'MINIMIZAR')+'</button>'+
     '</div>'+
-    '<div class="pedidosBusca"><input id="pesquisaPedidosTGR" type="search" autocomplete="off" placeholder="Pesquisar nome, fantasia, código ou pedido" aria-label="Pesquisar pedidos da rota"><div class="pedidosBuscaInfo"></div></div>'+
+    '<div class="pedidosBusca"><span class="pedidosBuscaLupa" aria-hidden="true">⌕</span><input id="pesquisaPedidosTGR" type="search" autocomplete="off" placeholder="Pesquisar cliente ou pedido..." aria-label="Pesquisar pedidos da rota"><div class="pedidosBuscaInfo"></div></div>'+
     '<div class="pedidosConteudo">'+itens.map((p,i)=>{
     const st=getStatus(p);
     const prioridade=atendimentoCliente(p.cliente);
