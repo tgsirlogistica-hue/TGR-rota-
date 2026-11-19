@@ -218,6 +218,47 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
 .fechamentoRaioTGR strong{display:block;font-size:13px}.fechamentoRaioTGR p{color:#777;font-size:12px;margin:7px 0 0}
 .fechamentoConfirmarTGR{width:100%;margin-top:18px;border:0;background:#148a2a;color:white;padding:13px;border-radius:9px;font-weight:800;cursor:pointer}.fechamentoConfirmarTGR:disabled{opacity:.5;cursor:wait}.fechamentoAvisoTGR{font-size:12px;color:#a32727;text-align:center;margin-top:10px;line-height:1.4}.fechamentoEncerradaTGR{background:#e6f5e9;color:#146c2e;border-radius:9px;padding:13px;font-weight:800;text-align:center;margin:0 0 15px}.fechamentoVoltarTGR{width:100%;margin-top:20px;border:0;background:#333;color:#fff;padding:13px;border-radius:9px;font-weight:800;cursor:pointer}
 @media(max-width:600px){#abrirFechamentoTGR{top:44px;right:8px}}
+
+/* Resumo compacto: prioriza leitura completa na tela do celular. */
+#telaFechamentoTGR{padding:8px 10px;overscroll-behavior:contain}
+.fechamentoCardTGR{max-width:520px;margin:0 auto;border-radius:12px}
+.fechamentoTopoTGR{padding:11px 15px 9px}
+.fechamentoTopoTGR h2{font-size:17px;margin:0 0 2px}
+.fechamentoTopoTGR p{font-size:10px}
+.fechamentoCorpoTGR{padding:11px 13px 12px}
+.fechamentoMetaTGR{grid-template-columns:1fr 1fr;gap:5px;margin-bottom:8px}
+.fechamentoMetaTGR div{padding:6px 9px;font-size:11px}
+.fechamentoMetaTGR small{font-size:9px;margin-bottom:2px}
+.fechamentoMetaTGR strong{font-size:11px}
+.fechamentoSecaoTGR{font-size:12px;margin:7px 0 5px}
+.fechamentoPizzaTGR{width:112px;height:112px;margin:5px auto 7px}
+.fechamentoPizzaTGR:before{inset:16px}
+.fechamentoPizzaTGR span{font-size:21px}
+.fechamentoPizzaTGR small{font-size:9px}
+.fechamentoLegendaTGR{gap:5px;margin:6px 0 9px;font-size:11px}
+.fechamentoLegendaTGR div{padding:7px 9px}
+.fechamentoRaioTGR{padding:8px;margin-top:4px}
+.fechamentoRaioTGR strong{font-size:11px}
+.fechamentoRaioTGR p{font-size:10px;margin:3px 0 0}
+.fechamentoVoltarTGR{margin-top:10px;padding:11px;font-size:12px}
+.fechamentoAvisoTGR:empty,#fechStatusTGR:empty{display:none}
+@media(max-height:720px){
+ .fechamentoTopoTGR{padding:8px 12px}
+ .fechamentoCorpoTGR{padding:8px 11px}
+ .fechamentoMetaTGR{margin-bottom:5px}
+ .fechamentoMetaTGR div{padding:4px 7px}
+ .fechamentoPizzaTGR{width:90px;height:90px;margin:3px auto}
+ .fechamentoPizzaTGR:before{inset:13px}
+ .fechamentoPizzaTGR span{font-size:18px}
+ .fechamentoLegendaTGR{margin:4px 0 6px;gap:4px}
+ .fechamentoLegendaTGR div{padding:5px 7px}
+ .fechamentoRaioTGR{padding:6px}
+ .fechamentoVoltarTGR{margin-top:7px;padding:9px}
+}
+@media(min-width:700px) and (min-height:600px){
+ .fechamentoPizzaTGR{width:135px;height:135px}
+ .fechamentoPizzaTGR:before{inset:20px}
+}
 </style>
 <script>
 // TGR Offline V2 - registra o Service Worker assim que possível.
@@ -293,7 +334,7 @@ function tgrAutenticarFirebase(){return tgrAuthPromise||(tgrAuthPromise=tgrAuth.
    </div>
    <div class="fechamentoSecaoTGR">Aderência de Raio</div>
    <div class="fechamentoRaioTGR"><strong>—</strong><p>Informação ainda não disponível</p></div>
-   <div id="fechStatusTGR" aria-live="polite"></div><button type="button" class="fechamentoConfirmarTGR" id="fechConfirmarTGR">CONFIRMAR FINALIZAÇÃO DA ROTA</button><div id="fechAvisoTGR" class="fechamentoAvisoTGR" aria-live="polite"></div><button type="button" class="fechamentoVoltarTGR" id="fechVerRotaConcluidaTGR">VER ROTA CONCLUÍDA</button>
+   <div id="fechStatusTGR" aria-live="polite"></div><div id="fechAvisoTGR" class="fechamentoAvisoTGR" aria-live="polite"></div><button type="button" class="fechamentoVoltarTGR" id="fechVerRotaConcluidaTGR">VER ROTA CONCLUÍDA</button>
   </div>
  </div>
 </section>
@@ -1655,7 +1696,7 @@ document.addEventListener('DOMContentLoaded',function(){
    let acc=0;const segmentos=[];
    for(const [cor,n] of fatias){if(!n||!total)continue;const ini=acc;acc+=n/total*100;segmentos.push(cor+' '+ini.toFixed(4)+'% '+acc.toFixed(4)+'%');}
    el('fechPizzaTGR').style.background=segmentos.length?'conic-gradient('+segmentos.join(',')+')':'#dedede';
-   el('fechStatusTGR').innerHTML='<div class="fechamentoEncerradaTGR">✓ ROTA FINALIZADA</div>';
+   el('fechStatusTGR').textContent='';
    if(!visualizandoRota)tela.classList.add('aberta');
  }
  function verificar(){
