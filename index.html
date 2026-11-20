@@ -332,6 +332,10 @@ function tgrAutenticarFirebase(){return tgrAuthPromise||(tgrAuthPromise=tgrAuth.
 
 <div id="map"></div>
 <div class="topo">
+  <div id="tgrRecuperacaoBox" style="margin:7px 0;padding:8px;border:1px solid #ddd;border-radius:8px;background:#fff;font-size:11px">
+    <button id="tgrRecuperarPlanilha" type="button" style="width:100%;padding:8px;background:#374151;color:#fff;border:0;border-radius:7px;font-weight:bold;cursor:pointer">RECUPERAR ATENDIMENTOS NA PLANILHA (DATA SELECIONADA)</button>
+    <div id="tgrRecuperarInfo" style="margin-top:5px;color:#555">Uso administrativo: importa do Firebase para a fila da planilha, sem alterar o portal.</div>
+  </div>
   <h2>Rotas TGR</h2>
   <div style="display:none"><select id="placa"><option value="">Selecione a placa...</option></select></div>
   <div id="info" class="info"></div>
@@ -1013,18 +1017,54 @@ async function tgrPlanilhaSincronizar(){
  if(tgrPlanilhaEnviando||!navigator.onLine||!tgrUsuario)return;
  tgrPlanilhaEnviando=true;
  try{
-  for(const item of tgrPlanilhaFila()){
-   if(!/^[a-zA-Z0-9_-]{12,100}$/.test(String(item.idRegistro||''))){console.warn('Planilha: item inválido preservado para revisão',item);break;}
-   // O endpoint já implementa validação e idempotência pelo ID_REGISTRO.
+  const pendentes=tgrPlanilhaFila().slice();
+  for(const item of pendentes){
+   if(!/^[a-zA-Z0-9_-]{12,100}$/.test(String(item.idRegistro||''))){
+    console.warn('Planilha: item sem ID válido preservado para conferência',item);continue;
+   }
    const payload={...item,acao:'atendimento_local',requisicao:tgrAtendId()};
    try{
     await tgrApi(payload);
     tgrPlanilhaSalvar(tgrPlanilhaFila().filter(x=>x.idRegistro!==item.idRegistro));
-   }catch(e){console.warn('Planilha: registro pendente, nova tentativa posteriormente',item.idRegistro,e);break;}
+   }catch(e){
+    console.warn('Planilha: envio recusado; item mantido, continuando próximos registros',item.idRegistro,e);
+   }
   }
  }finally{tgrPlanilhaEnviando=false;}
 }
+// Recuperação manual: compara registros do Firebase do dia selecionado e
+// enfileira somente IDs ainda não enviados pela fila deste navegador.
+// O Apps Script confere novamente o ID_REGISTRO, impedindo duplicação na planilha.
+async function tgrRecuperarPlanilhaFirebase(){
+ const botao=document.getElementById('tgrRecuperarPlanilha');
+ const info=document.getElementById('tgrRecuperarInfo');
+ if(!tgrUsuario||!navigator.onLine){info.textContent='Entre no GPS com internet antes de recuperar.';return;}
+ botao.disabled=true;info.textContent='Consultando Firebase...';
+ try{
+  await tgrAutenticarFirebase();
+  const data=tgrDataProgramacao();
+  const snapshot=await tgrDb.collection('entregas').where('dataRota','==',data).get({source:'server'});
+  let total=0,validos=0;
+  snapshot.forEach(doc=>{
+   total++;const d=doc.data();
+   if(!['ATENDIDO','DEVOLUCAO'].includes(String(d.status||'')))return;
+   if(!/^[a-zA-Z0-9_-]{12,100}$/.test(String(d.idRegistro||'')))return;
+   if(!d.clienteCodigo||!d.pedido||!d.placa||!d.rota||!d.motorista)return;
+   tgrPlanilhaEnfileirar({idRegistro:d.idRegistro,dataRota:d.dataRota,rota:d.rota,
+    clienteCodigo:d.clienteCodigo,clienteNome:d.clienteNome||'',pedido:d.pedido,
+    placa:d.placa,motorista:d.motorista,status:d.status,
+    latitude:d.latitude??null,longitude:d.longitude??null,precisaoMetros:d.precisaoMetros??null,
+    dataHoraDispositivo:d.dataHoraDispositivo||'',observacao:d.observacao||'',origem:'Recuperação Firebase'});
+   validos++;
+  });
+  info.textContent='Firebase: '+total+' registros consultados; '+validos+' finalizações válidas. Fila para planilha: '+tgrPlanilhaFila().length+'. Enviando...';
+  await tgrPlanilhaSincronizar();
+  info.textContent='Conferência '+data+': '+validos+' finalizações. Pendentes neste navegador: '+tgrPlanilhaFila().length+'. Confira a planilha; se restarem pendentes, verifique o Console.';
+ }catch(e){console.error('Recuperação Firebase → Planilha:',e);info.textContent='Não foi possível recuperar: '+e.message+' (nenhum registro foi apagado).';}
+ finally{botao.disabled=false;}
+}
 
+document.getElementById('tgrRecuperarPlanilha').addEventListener('click',tgrRecuperarPlanilhaFirebase);
 function tgrAviso(msg,cor){const el=document.getElementById('mensagemLoginTGR');if(el){el.textContent=msg;el.style.color=cor||'#b00000';}}
 // Form POST + iframe para comunicar com Apps Script sem depender de CORS do ContentService.
 document.getElementById('mostrarSenhaTGR').addEventListener('change',function(){
