@@ -501,35 +501,22 @@ async function lerDadoLocal(chave){
   });
 }
 async function obterTextoPersistente(url,chave){
-  if(navigator.onLine){
-    try{
-      const r=await fetch(url+'?v='+Date.now(),{cache:'no-store'});
-      if(!r.ok)throw new Error('HTTP '+r.status);
-      const t=await r.text();
-      await salvarDadoLocal(chave,t);
-      return t;
-    }catch(e){console.warn('Rede falhou; usando '+chave+' local.',e);}
-  }
-  const local=await lerDadoLocal(chave);
-  if(typeof local==='string' && local.length)return local;
-  throw new Error(chave+' não está salvo neste aparelho.');
+  const local=await lerDadoLocal(chave).catch(()=>null);
+  if(typeof local==='string'&&local.length)return local;
+  if(!navigator.onLine)throw new Error(chave+' não está salvo neste aparelho.');
+  const r=await fetch(url+'?v='+Date.now(),{cache:'no-store'});
+  if(!r.ok)throw new Error('HTTP '+r.status);
+  const t=await r.text();await salvarDadoLocal(chave,t);return t;
 }
 async function obterBinarioPersistente(url,chave){
-  if(navigator.onLine){
-    try{
-      const r=await fetch(url+'?v='+Date.now(),{cache:'no-store'});
-      if(!r.ok)throw new Error('HTTP '+r.status);
-      const b=await r.arrayBuffer();
-      await salvarDadoLocal(chave,b);
-      return b;
-    }catch(e){console.warn('Rede falhou; usando '+chave+' local.',e);}
-  }
-  const local=await lerDadoLocal(chave);
+  const local=await lerDadoLocal(chave).catch(()=>null);
   if(local instanceof ArrayBuffer)return local;
-  if(local && local.buffer instanceof ArrayBuffer)return local.buffer;
-  throw new Error(chave+' não está salvo neste aparelho.');
+  if(local&&local.buffer instanceof ArrayBuffer)return local.buffer;
+  if(!navigator.onLine)throw new Error(chave+' não está salvo neste aparelho.');
+  const r=await fetch(url+'?v='+Date.now(),{cache:'no-store'});
+  if(!r.ok)throw new Error('HTTP '+r.status);
+  const b=await r.arrayBuffer();await salvarDadoLocal(chave,b);return b;
 }
-
 async function carregarBaseClientes(){
   try{
     const buffer=await obterBinarioPersistente('Base de Clientes.xlsx','base_clientes_xlsx');
@@ -680,29 +667,34 @@ function tgrHistoricoJSONP(data){
   }
   return solicitar(tentativas[0]);
 }
-async function tgrObterHistorico(data){
+async function tgrObterHistorico(data,{atualizar=false}={}){
   const chave='tgr_historico_operacao_v1_'+data;
+  const salvo=await lerDadoLocal(chave).catch(()=>null);
+  if(!atualizar&&salvo){
+    try{const resposta=JSON.parse(salvo);if(resposta.data===data&&Array.isArray(resposta.registros))return {resposta,offline:true};}catch(_){}
+  }
+  if(!navigator.onLine){
+    if(salvo){try{const resposta=JSON.parse(salvo);if(resposta.data===data&&Array.isArray(resposta.registros))return {resposta,offline:true};}catch(_){}}
+    throw Error('Planejamento desta data não foi baixado. Conecte-se e use ATUALIZAR DADOS OFFLINE.');
+  }
   try{
-    if(!navigator.onLine)throw Error('Sem conexão de internet.');
     const resposta=await tgrHistoricoJSONP(data);
     if(!Array.isArray(resposta.registros)||resposta.data!==data)throw Error('Resposta não corresponde à data solicitada.');
-    try{await salvarDadoLocal(chave,JSON.stringify(resposta));}catch(e){console.warn('Cache de histórico indisponível',e);}
+    if(!resposta.registros.length)throw Error('Planejamento vazio; dados anteriores preservados.');
+    await salvarDadoLocal(chave,JSON.stringify(resposta));
     return {resposta,offline:false};
   }catch(erro){
-    const salvo=await lerDadoLocal(chave).catch(()=>null);
-    if(salvo){
-      try{const resposta=JSON.parse(salvo);if(resposta.data===data&&Array.isArray(resposta.registros))return {resposta,offline:true};}catch(_){}
-    }
+    if(salvo){try{const resposta=JSON.parse(salvo);if(resposta.data===data&&Array.isArray(resposta.registros))return {resposta,offline:true};}catch(_){}}
     throw erro;
   }
 }
-async function carregarRotas(){
+async function carregarRotas({atualizar=false}={}){
   const data=document.getElementById('dataOperacaoTGR')?.value||tgrDataLocal();
   const numero=++tgrCargaNumero;
   const aviso=document.getElementById('tgrAvisoData');
-  if(aviso)aviso.textContent='Consultando planejamento de '+data.split('-').reverse().join('/')+'...';
+  if(aviso)aviso.textContent=(atualizar?'Atualizando':'Abrindo')+' planejamento de '+data.split('-').reverse().join('/')+'...';
   try{
-    const {resposta,offline}=await tgrObterHistorico(data);
+    const {resposta,offline}=await tgrObterHistorico(data,{atualizar});
     if(numero!==tgrCargaNumero)return;
     const linhas=resposta.registros;
     const novos=linhas.map(cols=>({
@@ -725,7 +717,7 @@ async function carregarRotas(){
     dados=novos;tgrDataSelecionada=data;
     const selectAtual=document.getElementById('placa');selectAtual.value='';
     preencherPlacas();
-    if(aviso)aviso.textContent='Dados disponíveis';
+    if(aviso)aviso.textContent=offline?'Planejamento salvo no aparelho — confira a data':'Planejamento atualizado e salvo no aparelho';
     tgrImportarRotas();tgrSincronizar();
   }catch(erro){
     if(numero!==tgrCargaNumero)return;
@@ -1061,8 +1053,22 @@ function tgrApi(payload){
 }
 // Login operacional provisório: planilha XLSX pública no GitHub.
 const TGR_SENHAS_URL='https://raw.githubusercontent.com/tgsirlogistica-hue/TGR-rota-/main/SENHAS.xlsx';
+async function tgrHashOffline(salt,senha){
+  const bytes=new TextEncoder().encode(salt+'|'+senha);
+  const digest=await crypto.subtle.digest('SHA-256',bytes);
+  return Array.from(new Uint8Array(digest),x=>x.toString(16).padStart(2,'0')).join('');
+}
 async function tgrLogin(senha){
-  if(!navigator.onLine)throw new Error('Conecte-se à internet para validar a senha.');
+  if(!navigator.onLine){
+    const registro=await lerDadoLocal('tgr_login_offline_v1').catch(()=>null);
+    if(!registro||Date.now()>registro.expira||!registro.salt||!registro.hash||!registro.usuario)
+      throw new Error('Acesso offline não preparado ou expirado (24h). Conecte-se e entre novamente.');
+    const hash=await tgrHashOffline(registro.salt,senha);
+    if(hash!==registro.hash)throw new Error('Senha offline inválida.');
+    tgrUsuario=registro.usuario;tgrToken='LOGIN_LOCAL';
+    sessionStorage.setItem('tgr_sessao_v1',JSON.stringify({usuario:tgrUsuario,token:tgrToken}));
+    return {usuario:tgrUsuario};
+  }
   if(typeof XLSX==='undefined')throw new Error('Leitor de Excel indisponível. Verifique sua conexão e recarregue a página.');
   const r=await fetch(TGR_SENHAS_URL+'?v='+Date.now(),{cache:'no-store'});
   if(!r.ok)throw new Error('Não foi possível ler SENHAS.xlsx do GitHub (HTTP '+r.status+').');
@@ -1076,6 +1082,11 @@ async function tgrLogin(senha){
   if(!tgrUsuario)throw new Error('Cadastro sem nome de usuário.');
   // Marcador de sessão local; NÃO é token de autenticação de servidor.
   tgrToken='LOGIN_LOCAL';
+  // Validação offline local limitada a 24 horas após um login online válido.
+  // Não armazenar senha em texto; o hash local não substitui autenticação do servidor.
+  try{const salt=crypto.randomUUID();await salvarDadoLocal('tgr_login_offline_v1',{
+    usuario:tgrUsuario,salt,hash:await tgrHashOffline(salt,senha),expira:Date.now()+24*60*60*1000
+  });}catch(e){console.warn('Login offline indisponível:',e);}
   await tgrAutenticarFirebase();
   sessionStorage.setItem('tgr_sessao_v1',JSON.stringify({usuario:tgrUsuario,token:tgrToken}));
   tgrAtendSincronizar();
@@ -1522,7 +1533,7 @@ botao.addEventListener('click',async function(){
         selectAtual.value=selectInicial.value;
         selectAtual.dispatchEvent(new Event('change',{bubbles:true}));
         tela.style.display='none';
-        tgrAtendSincronizar();
+        if(navigator.onLine)tgrAtendSincronizar();
         setTimeout(function(){if(window.map)map.invalidateSize();},100);
       }catch(err){tgrAviso(err.message);}
       finally{botao.textContent='ENTRAR NO SISTEMA';botao.disabled=!selectInicial.value;}
@@ -1638,9 +1649,13 @@ document.addEventListener('DOMContentLoaded',function(){
       ]);
       let n=0; for(const u of EXTERNOS){n++;await guardar(cache,u,'componentes do aplicativo',38+n*3);}
       await guardarMapa(cache);
+      if(texto)texto.textContent='Atualizando planejamento da data selecionada...';
+      const dataOffline=document.getElementById('dataOperacaoTGR')?.value||tgrDataLocal();
+      const planejamento=await tgrObterHistorico(dataOffline,{atualizar:true});
+      if(planejamento.offline)throw Error('Não foi possível atualizar o planejamento online. Dados anteriores preservados.');
       const agora=new Date().toISOString();localStorage.setItem(CHAVE,agora);
       if(ultima)ultima.textContent='Último download offline: '+fmtDataHora(agora);
-      if(texto){texto.classList.remove('erro');texto.classList.add('ok');texto.textContent='OFFLINE PRONTO ✓ PIX e clientes foram gravados; aplicativo e mapa foram salvos. As rotas da data selecionada são armazenadas quando consultadas na planilha.';}
+      if(texto){texto.classList.remove('erro');texto.classList.add('ok');texto.textContent='OFFLINE PRONTO ✓ PIX e clientes foram gravados; aplicativo e mapa foram salvos. Planejamento da data selecionada também foi baixado e salvo.';}
       b.classList.remove('baixando','falha');b.classList.add('pronto');b.textContent='DADOS OFFLINE PRONTOS ✓';b.disabled=false;
       // Recarrega dados diretamente da rede agora; offline o SW usará as cópias salvas.
       await Promise.all([carregarPix(),carregarBaseClientes(),carregarAtendimentos()]); await carregarRotas();
