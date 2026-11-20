@@ -1126,19 +1126,6 @@ async function tgrLogin(senha){
     throw e;
   }
 }
-// Aderência geográfica calculada na finalização (entrega ou devolução).
-function tgrDistanciaMetros(lat1,lon1,lat2,lon2){
- const rad=Math.PI/180,dl=(lat2-lat1)*rad,doLon=(lon2-lon1)*rad;
- const a=Math.sin(dl/2)**2+Math.cos(lat1*rad)*Math.cos(lat2*rad)*Math.sin(doLon/2)**2;
- return Math.round(6371000*2*Math.atan2(Math.sqrt(a),Math.sqrt(Math.max(0,1-a))));
-}
-function tgrAderenciaFinalizacao(p,gps){
- const lat=Number(p.lat),lon=Number(p.lon);
- const clienteValido=Number.isFinite(lat)&&Number.isFinite(lon)&&Math.abs(lat)<=90&&Math.abs(lon)<=180&&(lat!==0||lon!==0);
- const distancia=gps&&clienteValido?tgrDistanciaMetros(lat,lon,gps.latitude,gps.longitude):null;
- return {latitudeCliente:clienteValido?lat:null,longitudeCliente:clienteValido?lon:null,
-  distanciaMetros:distancia,aderencia150m:distancia===null?'NÃO VERIFICADO':distancia<=150?'DENTRO DO RAIO':'FORA DO RAIO'};
-}
 function tgrCapturarGPS(){return new Promise((resolve,reject)=>{
  if(!navigator.geolocation)return reject(new Error('GPS indisponível neste dispositivo.'));
  navigator.geolocation.getCurrentPosition(p=>resolve(p.coords),e=>reject(new Error(e.code===1?'Permissão de localização negada.':e.code===2?'Não foi possível determinar a localização.':'Tempo esgotado ao obter localização.')),{enableHighAccuracy:true,timeout:10000,maximumAge:5000});
@@ -1159,8 +1146,21 @@ async function tgrAtendSincronizar(){
   for(const item of tgrAtendFila()){
    // O GPS é obtido em segundo plano: nunca bloqueia o toque do motorista.
    // Atendimentos antigos com coordenadas nulas continuam com o comportamento anterior.
-   // Não capturar localização posteriormente: ela não representa o ponto de finalização.
-   // Registros legados sem GPS são enviados como NÃO VERIFICADO, sem bloqueio.
+   if(item.gpsPendente && ['ATENDIDO','DEVOLUCAO'].includes(item.status)){
+    try{
+     const gps=await tgrCapturarGPS();
+     item.latitude=gps.latitude;item.longitude=gps.longitude;
+     item.precisaoMetros=gps.accuracy;
+     item.gpsPendente=false;
+     const atual=tgrAtendFila();
+     const pos=atual.findIndex(x=>x.idRegistro===item.idRegistro);
+     if(pos>=0){atual[pos]={...atual[pos],latitude:item.latitude,longitude:item.longitude,precisaoMetros:item.precisaoMetros,gpsPendente:false};tgrAtendSalvar(atual);}
+    }catch(e){
+     console.warn('GPS pendente; atendimento preservado para nova tentativa:',e.message);
+     if(tgrToastRegistro===item.idRegistro)tgrNotificar('Pedido '+item.pedido+' salvo. GPS indisponível; sincronização pendente.','info',5000);
+     continue;
+    }
+   }
    const id=[item.dataRota,item.rota,item.pedido,item.clienteCodigo].map(x=>encodeURIComponent(String(x||'').trim())).join('~');
    const ref=tgrDb.collection('entregas').doc(id);
    await tgrDb.runTransaction(async tx=>{
@@ -1170,7 +1170,6 @@ async function tgrAtendSincronizar(){
     const registro={idRegistro:item.idRegistro,dataRota:item.dataRota,rota:item.rota,pedido:item.pedido,clienteCodigo:item.clienteCodigo,
       clienteNome:item.clienteNome||'',motorista:item.motorista||'',placa:item.placa||'',status:item.status,
       observacao:item.observacao||'',latitude:item.latitude??null,longitude:item.longitude??null,precisaoMetros:item.precisaoMetros??null,
-      latitudeCliente:item.latitudeCliente??null,longitudeCliente:item.longitudeCliente??null,distanciaMetros:item.distanciaMetros??null,aderencia150m:item.aderencia150m||'NÃO VERIFICADO',
       dataHoraDispositivo:item.dataHoraDispositivo||new Date().toISOString(),alteradoPorUid:tgrAuth.currentUser.uid,
       atualizadoEm:firebase.firestore.FieldValue.serverTimestamp()};
     tx.set(ref,registro);
@@ -1237,16 +1236,11 @@ async function tgrEncerrarAtendimento(status,motivo){
  const btn=document.getElementById(status==='DEVOLUCAO'?'tgrConfirmarDevolucao':'tgrFinalizarBtn');
  btn.disabled=true;
  try{
-  // Capturar GPS AGORA, no momento de concluir entrega/devolução; nunca na sincronização futura.
-  const momentoFinalizacao=new Date().toISOString();
-  let gps=null;
-  try{gps=await tgrCapturarGPS();}catch(e){console.warn('Localização indisponível na finalização:',e.message);}
-  const aderencia=tgrAderenciaFinalizacao(p,gps);
+  // A ação visual é imediata. O GPS e a rede são processados depois,
+  // sem bloquear a interface nem declarar sincronização antes da confirmação.
   const registro={idRegistro:tgrAtendId(),clienteCodigo:p.cliente,clienteNome:nomeFantasiaCliente(p.cliente),pedido:p.pedido,
-   rota:p.rota,dataRota:tgrDataProgramacao(),placa:select.value,motorista:tgrUsuario,status,
-   latitude:gps?gps.latitude:null,longitude:gps?gps.longitude:null,
-   precisaoMetros:gps?gps.accuracy:null,gpsPendente:false,...aderencia,
-   dataHoraDispositivo:momentoFinalizacao,observacao:String(motivo||'').trim(),origem:'TGR Rota'};
+   rota:p.rota,dataRota:tgrDataProgramacao(),placa:select.value,motorista:tgrUsuario,status,latitude:null,longitude:null,
+   precisaoMetros:null,gpsPendente:true,dataHoraDispositivo:new Date().toISOString(),observacao:String(motivo||'').trim(),origem:'TGR Rota'};
   const fila=tgrAtendFila();fila.push(registro);
   // Gravar primeiro a fila e só depois o estado definitivo: não perder o registro.
   tgrAtendSalvar(fila);
@@ -1254,7 +1248,7 @@ async function tgrEncerrarAtendimento(status,motivo){
   document.getElementById('tgrAtendimentoModal').classList.remove('ativo');tgrPedidoModal=null;
   tgrRedesenharAtendimento();
   tgrToastRegistro=registro.idRegistro;
-  tgrNotificar('Pedido '+p.pedido+' salvo. '+(aderencia.distanciaMetros===null?'Raio não verificado.':aderencia.distanciaMetros+' m — '+aderencia.aderencia150m.toLowerCase()+'.')+' Aguardando sincronização.','info',6500);
+  tgrNotificar('Pedido '+p.pedido+' salvo. Aguardando sincronização com o Firebase.','info',5000);
   setTimeout(()=>tgrAtendSincronizar(),0);
  }catch(err){tgrNotificar((err&&err.message)||'Falha ao salvar o atendimento.','erro',5000);}
  finally{tgrFinalizando=false;btn.disabled=false;}
