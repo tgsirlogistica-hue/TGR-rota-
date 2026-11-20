@@ -1053,46 +1053,78 @@ function tgrApi(payload){
 }
 // Login operacional provisório: planilha XLSX pública no GitHub.
 const TGR_SENHAS_URL='https://raw.githubusercontent.com/tgsirlogistica-hue/TGR-rota-/main/SENHAS.xlsx';
+// Autorização offline vinculada ao último login online válido.
+// Cópia de contingência em localStorage quando IndexedDB estiver indisponível.
+const TGR_LOGIN_OFFLINE_CHAVE='tgr_login_offline_v2';
 async function tgrHashOffline(salt,senha){
-  const bytes=new TextEncoder().encode(salt+'|'+senha);
+  const bytes=new TextEncoder().encode(salt+'|'+String(senha).trim());
   const digest=await crypto.subtle.digest('SHA-256',bytes);
   return Array.from(new Uint8Array(digest),x=>x.toString(16).padStart(2,'0')).join('');
 }
+async function tgrLerAutorizacaoOffline(){
+  let registro=await lerDadoLocal(TGR_LOGIN_OFFLINE_CHAVE).catch(()=>null);
+  if(!registro){
+    try{registro=JSON.parse(localStorage.getItem(TGR_LOGIN_OFFLINE_CHAVE)||'null');}catch(_){registro=null;}
+  }
+  // Compatibilidade com o login offline da versão anterior.
+  if(!registro)registro=await lerDadoLocal('tgr_login_offline_v1').catch(()=>null);
+  return registro;
+}
+async function tgrSalvarAutorizacaoOffline(usuario,senha){
+  const salt=crypto.randomUUID();
+  const registro={usuario,salt,hash:await tgrHashOffline(salt,senha),expira:Date.now()+24*60*60*1000};
+  let salvo=false;
+  try{
+    await salvarDadoLocal(TGR_LOGIN_OFFLINE_CHAVE,registro);
+    const conferido=await lerDadoLocal(TGR_LOGIN_OFFLINE_CHAVE);
+    salvo=!!conferido&&conferido.hash===registro.hash;
+  }catch(e){console.warn('IndexedDB indisponível para login offline:',e);}
+  if(!salvo){
+    try{
+      localStorage.setItem(TGR_LOGIN_OFFLINE_CHAVE,JSON.stringify(registro));
+      salvo=JSON.parse(localStorage.getItem(TGR_LOGIN_OFFLINE_CHAVE)||'null')?.hash===registro.hash;
+    }catch(e){console.warn('Armazenamento alternativo indisponível:',e);}
+  }
+  if(!salvo)throw new Error('Login validado, mas não foi possível preparar o acesso offline. Verifique o armazenamento do navegador.');
+}
 async function tgrLogin(senha){
-  if(!navigator.onLine){
-    const registro=await lerDadoLocal('tgr_login_offline_v1').catch(()=>null);
-    if(!registro||Date.now()>registro.expira||!registro.salt||!registro.hash||!registro.usuario)
-      throw new Error('Acesso offline não preparado ou expirado (24h). Conecte-se e entre novamente.');
-    const hash=await tgrHashOffline(registro.salt,senha);
-    if(hash!==registro.hash)throw new Error('Senha offline inválida.');
+  const registro=await tgrLerAutorizacaoOffline();
+  const offlineValido=registro&&Date.now()<=Number(registro.expira)&&registro.salt&&registro.hash&&registro.usuario;
+  // navigator.onLine pode informar "online" mesmo sem acesso efetivo ao servidor.
+  // Primeiro tenta autenticação online; se falhar por rede, usa a autorização offline.
+  async function entrarOffline(){
+    if(!offlineValido)throw new Error('Acesso offline não preparado ou expirado (24h). Entre com internet uma vez nesta versão.');
+    if(await tgrHashOffline(registro.salt,senha)!==registro.hash)throw new Error('Senha offline inválida.');
     tgrUsuario=registro.usuario;tgrToken='LOGIN_LOCAL';
     sessionStorage.setItem('tgr_sessao_v1',JSON.stringify({usuario:tgrUsuario,token:tgrToken}));
-    return {usuario:tgrUsuario};
+    return {usuario:tgrUsuario,offline:true};
   }
-  if(typeof XLSX==='undefined')throw new Error('Leitor de Excel indisponível. Verifique sua conexão e recarregue a página.');
-  const r=await fetch(TGR_SENHAS_URL+'?v='+Date.now(),{cache:'no-store'});
-  if(!r.ok)throw new Error('Não foi possível ler SENHAS.xlsx do GitHub (HTTP '+r.status+').');
-  const wb=XLSX.read(await r.arrayBuffer(),{type:'array'});
-  const ws=wb.Sheets[wb.SheetNames[0]];
-  if(!ws)throw new Error('Planilha de usuários vazia.');
-  const usuarios=XLSX.utils.sheet_to_json(ws,{defval:'',raw:false});
-  const encontrados=usuarios.filter(x=>String(x.SENHA??'').trim()===String(senha).trim() && String(x.ATIVO??'').trim().toUpperCase()==='SIM');
-  if(encontrados.length!==1)throw new Error(encontrados.length?'Senha cadastrada para mais de um usuário. Corrija a planilha.':'Senha inválida ou usuário inativo.');
-  tgrUsuario=String(encontrados[0].LOGIN??'').trim();
-  if(!tgrUsuario)throw new Error('Cadastro sem nome de usuário.');
-  // Marcador de sessão local; NÃO é token de autenticação de servidor.
-  tgrToken='LOGIN_LOCAL';
-  // Validação offline local limitada a 24 horas após um login online válido.
-  // Não armazenar senha em texto; o hash local não substitui autenticação do servidor.
-  try{const salt=crypto.randomUUID();await salvarDadoLocal('tgr_login_offline_v1',{
-    usuario:tgrUsuario,salt,hash:await tgrHashOffline(salt,senha),expira:Date.now()+24*60*60*1000
-  });}catch(e){console.warn('Login offline indisponível:',e);}
-  await tgrAutenticarFirebase();
-  sessionStorage.setItem('tgr_sessao_v1',JSON.stringify({usuario:tgrUsuario,token:tgrToken}));
-  tgrAtendSincronizar();
-  tgrPlanilhaSincronizar();
-  tgrConsultarCompartilhado();
-  return {usuario:tgrUsuario};
+  if(!navigator.onLine)return entrarOffline();
+  try{
+    if(typeof XLSX==='undefined')throw new Error('Leitor de Excel indisponível.');
+    const r=await fetch(TGR_SENHAS_URL+'?v='+Date.now(),{cache:'no-store',signal:AbortSignal.timeout(12000)});
+    if(!r.ok)throw new Error('Falha ao consultar SENHAS.xlsx (HTTP '+r.status+').');
+    const wb=XLSX.read(await r.arrayBuffer(),{type:'array'});
+    const ws=wb.Sheets[wb.SheetNames[0]];
+    if(!ws)throw new Error('Planilha de usuários vazia.');
+    const usuarios=XLSX.utils.sheet_to_json(ws,{defval:'',raw:false});
+    const encontrados=usuarios.filter(x=>String(x.SENHA??'').trim()===String(senha).trim()&&String(x.ATIVO??'').trim().toUpperCase()==='SIM');
+    if(encontrados.length!==1)throw new Error(encontrados.length?'Senha cadastrada para mais de um usuário. Corrija a planilha.':'Senha inválida ou usuário inativo.');
+    tgrUsuario=String(encontrados[0].LOGIN??'').trim();
+    if(!tgrUsuario)throw new Error('Cadastro sem nome de usuário.');
+    tgrToken='LOGIN_LOCAL';
+    await tgrSalvarAutorizacaoOffline(tgrUsuario,senha);
+    // Falhas de conexão com Firebase não invalidam o login já validado na planilha.
+    try{await tgrAutenticarFirebase();}catch(e){console.warn('Firebase indisponível temporariamente:',e);}
+    sessionStorage.setItem('tgr_sessao_v1',JSON.stringify({usuario:tgrUsuario,token:tgrToken}));
+    tgrAtendSincronizar();tgrPlanilhaSincronizar();tgrConsultarCompartilhado();
+    return {usuario:tgrUsuario,offline:false};
+  }catch(e){
+    // Erro de senha/usuário não pode ser contornado pela cópia offline quando servidor respondeu.
+    if(/Senha inválida|usuário inativo|mais de um usuário|Cadastro sem nome|Planilha de usuários vazia/.test(e.message))throw e;
+    if(offlineValido)return entrarOffline();
+    throw e;
+  }
 }
 function tgrCapturarGPS(){return new Promise((resolve,reject)=>{
  if(!navigator.geolocation)return reject(new Error('GPS indisponível neste dispositivo.'));
