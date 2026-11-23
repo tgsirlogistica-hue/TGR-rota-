@@ -215,7 +215,7 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
 .fechamentoLegendaTGR div{background:#f8f8f8;border-radius:8px;padding:10px}.fechamentoLegendaTGR b{float:right}
 .fechamentoBolinhaTGR{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px}
 .fechamentoRaioTGR{border:1px dashed #bbb;background:#fafafa;border-radius:11px;padding:15px;text-align:center;margin-top:9px}
-.fechamentoRaioTGR strong{display:block;font-size:13px}.fechamentoRaioTGR p{color:#777;font-size:12px;margin:7px 0 0}
+.fechamentoRaioTGR strong{display:block;font-size:24px;color:#16843c}.fechamentoRaioTGR strong.semDados{color:#64748b}.fechamentoRaioTGR p{color:#777;font-size:12px;margin:7px 0 0}
 .fechamentoConfirmarTGR{width:100%;margin-top:18px;border:0;background:#148a2a;color:white;padding:13px;border-radius:9px;font-weight:800;cursor:pointer}.fechamentoConfirmarTGR:disabled{opacity:.5;cursor:wait}.fechamentoAvisoTGR{font-size:12px;color:#a32727;text-align:center;margin-top:10px;line-height:1.4}.fechamentoEncerradaTGR{background:#e6f5e9;color:#146c2e;border-radius:9px;padding:13px;font-weight:800;text-align:center;margin:0 0 15px}.fechamentoVoltarTGR{width:100%;margin-top:20px;border:0;background:#333;color:#fff;padding:13px;border-radius:9px;font-weight:800;cursor:pointer}
 @media(max-width:600px){#abrirFechamentoTGR{left:8px;right:auto;bottom:22px;top:auto}}
 
@@ -362,7 +362,7 @@ function tgrAutenticarFirebase(){return tgrAuthPromise||(tgrAuthPromise=tgrAuth.
     <div style="grid-column:1/-1">Total de entregas <b id="fechTotalTGR">0</b></div>
    </div>
    <div class="fechamentoSecaoTGR">Aderência de Raio</div>
-   <div class="fechamentoRaioTGR"><strong>—</strong><p>Informação ainda não disponível</p></div>
+   <div class="fechamentoRaioTGR" aria-live="polite"><strong id="fechAderenciaTGR">—</strong><p id="fechAderenciaDetalhesTGR">Aguardando dados de localização</p><p id="fechAderenciaCoberturaTGR"></p></div>
    <div id="fechStatusTGR" aria-live="polite"></div><div id="fechAvisoTGR" class="fechamentoAvisoTGR" aria-live="polite"></div><button type="button" class="fechamentoVoltarTGR" id="fechVerRotaConcluidaTGR">VER ROTA CONCLUÍDA</button>
   </div>
  </div>
@@ -1795,6 +1795,26 @@ document.addEventListener('DOMContentLoaded',function(){
    let acc=0;const segmentos=[];
    for(const [cor,n] of fatias){if(!n||!total)continue;const ini=acc;acc+=n/total*100;segmentos.push(cor+' '+ini.toFixed(4)+'% '+acc.toFixed(4)+'%');}
    el('fechPizzaTGR').style.background=segmentos.length?'conic-gradient('+segmentos.join(',')+')':'#dedede';
+   // Aderência da rota: somente atendimentos/devoluções com GPS verificável.
+   let dentro=0,fora=0,semGPS=0;
+   for(const pedido of itens){
+     const status=getStatus(pedido);
+     const chavePedido=[String(pedido.pedido).trim(),String(pedido.cliente).trim()].join('|');
+     const confirmado=servidorCarregado&&assinaturaServidor===chave()?statusServidor.get(chavePedido):null;
+     if(!['atendido','devolvido'].includes(confirmado||status))continue;
+     const raio=tgrRaioPedido(pedido);
+     if(raio?.estado==='dentro')dentro++;
+     else if(raio?.estado==='fora')fora++;
+     else semGPS++;
+   }
+   const verificados=dentro+fora;
+   const aderencia=verificados?dentro/verificados*100:null;
+   const campo=el('fechAderenciaTGR');
+   campo.textContent=aderencia===null?'Não verificado':aderencia.toLocaleString('pt-BR',{maximumFractionDigits:1})+'%';
+   campo.classList.toggle('semDados',aderencia===null);
+   campo.style.color=aderencia===null?'#64748b':aderencia>=80?'#16843c':'#cb2525';
+   el('fechAderenciaDetalhesTGR').textContent=dentro+' dentro do raio · '+fora+' fora do raio · '+semGPS+' sem GPS válido';
+   el('fechAderenciaCoberturaTGR').textContent='Base: '+verificados+' atividades verificadas de '+(verificados+semGPS)+' finalizadas (entregas e devoluções). Limite: 150 m.';
    el('fechStatusTGR').textContent='';
    if(!visualizandoRota)tela.classList.add('aberta');
  }
