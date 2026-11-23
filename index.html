@@ -1470,7 +1470,7 @@ function renderPedidos(placa){
     const st=getStatus(p);
     const prioridade=atendimentoCliente(p.cliente);
     return '<div class="pedidoItem'+(prioridade?' prioritario':'')+(st==='repasse'?' repasse':st==='atendido'?' finalizado':st==='devolvido'?' devolvido':'')+'" data-i="'+i+'" title="Clique para localizar no mapa">'+
-      '<div class="pedidoTopo"><span class="pedidoPeso">'+pesoNum(p.peso).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+' kg</span>'+tgrIconeRaioPedido(p)+'<span class="pedidoNum">'+esc(numeroParada(p,i))+'ª entrega • Pedido '+esc(p.pedido)+' — '+esc(nomeFantasiaCliente(p.cliente))+'</span></div>'+
+      '<div class="pedidoTopo"><span class="pedidoNum">'+esc(numeroParada(p,i))+'ª entrega • Pedido '+esc(p.pedido)+' — '+esc(nomeFantasiaCliente(p.cliente))+'</span>'+tgrIconeRaioPedido(p)+'<span class="pedidoPeso">'+pesoNum(p.peso).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+' kg</span></div>'+
       '<div>Cliente: '+esc(p.cliente)+' • '+esc(p.cidade)+'</div>'+
       (prioridade?'<div class="prioridadeDetalhes">'+detalhesAtendimento(prioridade)+'</div>':'')+
       '<div class="statusBtns">'+
