@@ -281,6 +281,13 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
 #pedidos .pedidosBusca input:focus{background:#fff;border-color:#c00000}
 #pedidos .pedidosBuscaLupa{position:absolute;left:13px;top:12px;display:flex;align-items:center;justify-content:center;width:21px;height:21px;color:#555;font-size:28px;font-family:Arial,sans-serif;line-height:1;pointer-events:none}
 #pedidos.minimizada .pedidosConteudo,#pedidos.minimizada .pedidosBusca{display:none}
+
+/* Indicador de aderência geográfica por pedido */
+.tgrRaioIcone{width:25px;height:25px;display:inline-flex;align-items:center;justify-content:center;flex:none;border-radius:50%;background:#9099a6;color:white;vertical-align:middle}
+.tgrRaioIcone.dentro{background:#16843c}.tgrRaioIcone.fora{background:#cb2525}
+.tgrRaioIcone svg{width:17px;height:17px;display:block}
+.pedidoTopo .tgrRaioIcone{margin:0 7px}
+.pedidoTopo{gap:5px}.pedidoTopo .pedidoNum{min-width:0;flex:1}.pedidoTopo .pedidoPeso{white-space:nowrap;flex:none}
 </style>
 <script>
 // TGR Offline V2 - registra o Service Worker assim que possível.
@@ -937,6 +944,7 @@ setInterval(tgrSincronizar,60000);
 
 function chaveStatus(p){return 'statusPedidoTGR|'+tgrDataProgramacao()+'|'+p.rota+'|'+p.pedido+'|'+p.cliente;}
 // Firestore: fonte central para todos os aparelhos; localStorage é somente cache/fila.
+let tgrDadosGPSRemotos=new Map();
 let tgrCompartilhado=new Map(),tgrConsultaConfirmada=new Set(),tgrDesinscrever=null,tgrAssinatura='',tgrServidorPronto=false;
 function tgrChaveCompartilhada(p){return [tgrDataProgramacao(),p.rota,p.pedido,p.cliente].join('|');}
 function tgrChaveRegistro(x){return [x.dataRota,x.rota,x.pedido,x.clienteCodigo].join('|');}
@@ -965,7 +973,7 @@ function tgrConsultarCompartilhado(){
     const x=doc.data(),chave=[x.dataRota,x.rota,x.pedido,x.clienteCodigo].join('|');
     const st={ATENDIDO:'atendido',DEVOLUCAO:'devolvido',REPASSE:'repasse',EM_ATENDIMENTO:'em_atendimento',PENDENTE:'pendente'}[x.status]||'pendente';
     const anterior=tgrCompartilhado.get(chave);
-    vistos.add(chave);tgrCompartilhado.set(chave,st);
+    vistos.add(chave);tgrCompartilhado.set(chave,st);tgrDadosGPSRemotos.set(chave,x);
     const p=dados.find(p=>tgrChaveCompartilhada(p)===chave);
     // Uma reabertura confirmada pelo servidor tem prioridade sobre o cache antigo.
     // Não removemos filas pendentes: elas podem conter operações ainda não sincronizadas.
@@ -974,7 +982,7 @@ function tgrConsultarCompartilhado(){
       tgrNotificar('Pedido '+p.pedido+' reaberto pela distribuição. Nova tentativa liberada.','sucesso',6500);
     }
    });
-   for(const k of [...tgrCompartilhado.keys()])if(k.startsWith(assinatura+'|')&&!vistos.has(k))tgrCompartilhado.delete(k);
+   for(const k of [...tgrCompartilhado.keys()])if(k.startsWith(assinatura+'|')&&!vistos.has(k)){tgrCompartilhado.delete(k);tgrDadosGPSRemotos.delete(k);}
    // Apenas respostas do servidor são autoridade; cache offline não apaga dados locais.
    if(!snapshot.metadata.fromCache){tgrConsultaConfirmada.add(assinatura);tgrServidorPronto=true;}
    tgrRedesenharAtendimento();
@@ -1152,6 +1160,7 @@ async function tgrAtendSincronizar(){
      item.latitude=gps.latitude;item.longitude=gps.longitude;
      item.precisaoMetros=gps.accuracy;
      item.gpsPendente=false;
+     tgrRedesenharAtendimento();
      const atual=tgrAtendFila();
      const pos=atual.findIndex(x=>x.idRegistro===item.idRegistro);
      if(pos>=0){atual[pos]={...atual[pos],latitude:item.latitude,longitude:item.longitude,precisaoMetros:item.precisaoMetros,gpsPendente:false};tgrAtendSalvar(atual);}
@@ -1176,6 +1185,7 @@ async function tgrAtendSincronizar(){
    });
    if(['ATENDIDO','DEVOLUCAO'].includes(item.status))tgrPlanilhaEnfileirar(item);
    tgrAtendSalvar(tgrAtendFila().filter(x=>x.idRegistro!==item.idRegistro));
+   tgrRedesenharAtendimento();
    if(tgrToastRegistro===item.idRegistro){
     tgrToastRegistro=null;
     tgrNotificar('Pedido '+item.pedido+' sincronizado com sucesso no Firebase!','sucesso',4000);
@@ -1421,6 +1431,26 @@ function numeroParada(p,i){
   return Number.isInteger(p.ordem)&&p.ordem>0?p.ordem:i+1;
 }
 
+
+function tgrNumeroGPS(v){if(v===null||v===undefined||v==='')return null;const n=Number(v);return Number.isFinite(n)?n:null;}
+function tgrDistanciaMetros(lat1,lon1,lat2,lon2){const r=Math.PI/180,a1=lat1*r,a2=lat2*r,dLat=(lat2-lat1)*r,dLon=(lon2-lon1)*r;const a=Math.sin(dLat/2)**2+Math.cos(a1)*Math.cos(a2)*Math.sin(dLon/2)**2;return 6371000*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));}
+function tgrRaioPedido(p){
+ const st=getStatus(p);if(st!=='atendido'&&st!=='devolvido')return null;
+ const chave=tgrChaveCompartilhada(p),remoto=tgrDadosGPSRemotos.get(chave);
+ const fila=tgrAtendFila().find(x=>tgrChaveRegistro(x)===chave);
+ const registro=fila||remoto;
+ const lat=tgrNumeroGPS(registro?.latitude),lon=tgrNumeroGPS(registro?.longitude);
+ const latCliente=tgrNumeroGPS(p.lat),lonCliente=tgrNumeroGPS(p.lon);
+ if(lat===null||lon===null||latCliente===null||lonCliente===null||Math.abs(lat)>90||Math.abs(latCliente)>90||Math.abs(lon)>180||Math.abs(lonCliente)>180)return {estado:'pendente',titulo:'Localização ainda não verificada'};
+ const distancia=tgrDistanciaMetros(lat,lon,latCliente,lonCliente);
+ return {estado:distancia<=150?'dentro':'fora',titulo:(distancia<=150?'Dentro':'Fora')+' do raio de 150 m — distância aproximada: '+Math.round(distancia)+' m'};
+}
+function tgrIconeRaioPedido(p){
+ const raio=tgrRaioPedido(p);if(!raio)return '';
+ const riscado=raio.estado==='fora';
+ return '<span class="tgrRaioIcone '+raio.estado+'" role="img" aria-label="'+esc(raio.titulo)+'" title="'+esc(raio.titulo)+'"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M13.5 2 5 13h6l-1 9 9-13h-6l2-7z" fill="currentColor"/>'+(riscado?'<path d="M3 3 21 21" stroke="white" stroke-width="2.7" stroke-linecap="round"/>':'')+'</svg></span>';
+}
+
 function renderPedidos(placa){
   const box=document.getElementById('pedidos');
   if(placa!==placaPosicaoListaTGR){
@@ -1440,7 +1470,7 @@ function renderPedidos(placa){
     const st=getStatus(p);
     const prioridade=atendimentoCliente(p.cliente);
     return '<div class="pedidoItem'+(prioridade?' prioritario':'')+(st==='repasse'?' repasse':st==='atendido'?' finalizado':st==='devolvido'?' devolvido':'')+'" data-i="'+i+'" title="Clique para localizar no mapa">'+
-      '<div class="pedidoTopo"><span class="pedidoNum">'+esc(numeroParada(p,i))+'ª entrega • Pedido '+esc(p.pedido)+' — '+esc(nomeFantasiaCliente(p.cliente))+'</span><span class="pedidoPeso">'+pesoNum(p.peso).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+' kg</span></div>'+
+      '<div class="pedidoTopo"><span class="pedidoPeso">'+pesoNum(p.peso).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+' kg</span>'+tgrIconeRaioPedido(p)+'<span class="pedidoNum">'+esc(numeroParada(p,i))+'ª entrega • Pedido '+esc(p.pedido)+' — '+esc(nomeFantasiaCliente(p.cliente))+'</span></div>'+
       '<div>Cliente: '+esc(p.cliente)+' • '+esc(p.cidade)+'</div>'+
       (prioridade?'<div class="prioridadeDetalhes">'+detalhesAtendimento(prioridade)+'</div>':'')+
       '<div class="statusBtns">'+
