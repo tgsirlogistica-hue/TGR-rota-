@@ -852,7 +852,7 @@ map.on('click',()=>{
     // Primeiro toque no mapa: apenas minimiza a lista.
     // O popup do cliente selecionado permanece aberto.
     const caixa=document.getElementById('pedidos');
-    if(caixa)posicaoListaPedidosTGR=caixa.scrollTop;
+    if(caixa){const conteudo=caixa.querySelector('.pedidosConteudo');if(conteudo)posicaoListaPedidosTGR=conteudo.scrollTop;}
     pedidosMinimizados=true;
     atualizarEstadoListaPedidos();
     return;
@@ -1389,12 +1389,12 @@ function atualizarEstadoListaPedidos(){
 
 function alternarListaPedidos(){
   const box=document.getElementById('pedidos');
-  if(box && !pedidosMinimizados) posicaoListaPedidosTGR=box.scrollTop;
+  if(box && !pedidosMinimizados){const conteudo=box.querySelector('.pedidosConteudo');if(conteudo)posicaoListaPedidosTGR=conteudo.scrollTop;}
   pedidosMinimizados=!pedidosMinimizados;
   atualizarEstadoListaPedidos();
   if(!pedidosMinimizados){
     // Restaurar depois de remover a classe que desativa a rolagem.
-    requestAnimationFrame(()=>{if(box && !pedidosMinimizados)box.scrollTop=posicaoListaPedidosTGR;});
+    requestAnimationFrame(()=>{if(box && !pedidosMinimizados){const conteudo=box.querySelector('.pedidosConteudo');if(conteudo)conteudo.scrollTop=posicaoListaPedidosTGR;}});
   }
 }
 function normalizarBuscaTGR(valor){
@@ -1457,7 +1457,8 @@ function renderPedidos(placa){
     placaPosicaoListaTGR=placa;
     posicaoListaPedidosTGR=0;
   }else if(!pedidosMinimizados){
-    posicaoListaPedidosTGR=box.scrollTop;
+    const conteudoAnterior=box.querySelector('.pedidosConteudo');
+    if(conteudoAnterior)posicaoListaPedidosTGR=conteudoAnterior.scrollTop;
   }
   if(!placa){box.style.display='none';box.innerHTML='';return;}
   const itens=itensDaRotaOrdenados(placa);
@@ -1494,8 +1495,13 @@ function renderPedidos(placa){
     campoPesquisa.addEventListener('click',ev=>ev.stopPropagation());
   }
   filtrarPedidosTGR(itens);
-  if(!pedidosMinimizados)box.scrollTop=posicaoListaPedidosTGR;
-  box.onscroll=()=>{if(!pedidosMinimizados)posicaoListaPedidosTGR=box.scrollTop;};
+  const conteudoPedidos=box.querySelector('.pedidosConteudo');
+  if(conteudoPedidos){
+    if(!pedidosMinimizados)conteudoPedidos.scrollTop=posicaoListaPedidosTGR;
+    conteudoPedidos.addEventListener('scroll',()=>{
+      if(!pedidosMinimizados)posicaoListaPedidosTGR=conteudoPedidos.scrollTop;
+    },{passive:true});
+  }
   box.querySelectorAll('.pedidoItem').forEach(item=>{
     item.onclick=()=>focarPedido(itens[Number(item.dataset.i)]);
   });
