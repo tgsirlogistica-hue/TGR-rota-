@@ -726,7 +726,7 @@ async function carregarRotas({atualizar=false}={}){
     preencherPlacas();
     if(aviso)aviso.textContent=offline?'Planejamento salvo no aparelho — confira a data':'Planejamento atualizado e salvo no aparelho';
     tgrImportarRotas();tgrSincronizar();
-    tgrRegistrarPendentesNaPlanilha(novos, data);
+    // Consultar o planejamento não gera eventos no histórico de atendimento.
   }catch(erro){
     if(numero!==tgrCargaNumero)return;
     console.error('Falha ao carregar histórico TGR:',erro);
@@ -1012,34 +1012,24 @@ function tgrAtendId(){return crypto.randomUUID?crypto.randomUUID():('tgr_'+Date.
 // Fila V2 separada da fila LEGADA de importação de rotas (359 itens sem idRegistro).
 const TGR_PLANILHA_FILA='tgr_planilha_atendimentos_v2';
 let tgrPlanilhaEnviando=false;
-function tgrPlanilhaFila(){try{return JSON.parse(localStorage.getItem(TGR_PLANILHA_FILA)||'[]')}catch(_){return []}}
+function tgrPlanilhaFila(){
+ try{
+  const fila=JSON.parse(localStorage.getItem(TGR_PLANILHA_FILA)||'[]');
+  if(!Array.isArray(fila))return [];
+  // Descarta apenas os eventos automáticos PENDENTE criados ao abrir planejamentos.
+  // Preserva todas as mudanças de status realizadas pelo motorista.
+  const limpa=fila.filter(x=>!(x && x.status==='PENDENTE' &&
+    String(x.idRegistro||'').startsWith('pend_') && x.observacao==='Rota carregada'));
+  if(limpa.length!==fila.length)localStorage.setItem(TGR_PLANILHA_FILA,JSON.stringify(limpa));
+  return limpa;
+ }catch(_){return []}
+}
 function tgrPlanilhaSalvar(f){localStorage.setItem(TGR_PLANILHA_FILA,JSON.stringify(f));}
 function tgrPlanilhaEnfileirar(item){
  if(!item || !/^[a-zA-Z0-9_-]{12,100}$/.test(String(item.idRegistro||''))) {console.error('Planilha: atendimento sem ID válido, não enfileirado',item);return;}
  const fila=tgrPlanilhaFila();if(!fila.some(x=>x.idRegistro===item.idRegistro)){fila.push(item);tgrPlanilhaSalvar(fila);}
 }
 
-// Eventos históricos: a importação registra PENDENTE uma vez por pedido/data.
-// ID determinístico permite deduplicar a mesma importação em aparelhos diferentes.
-function tgrIdPendente(data, p){
- const texto=[data,p.rota,p.pedido,p.cliente].map(v=>String(v||'').trim()).join('|');
- let h1=2166136261,h2=2166136261;
- for(let i=0;i<texto.length;i++){
-  h1=Math.imul(h1^texto.charCodeAt(i),16777619);
-  h2=Math.imul(h2^texto.charCodeAt(i),2246822519);
- }
- return 'pend_'+(h1>>>0).toString(16).padStart(8,'0')+(h2>>>0).toString(16).padStart(8,'0');
-}
-function tgrRegistrarPendentesNaPlanilha(lista,data){
- for(const p of lista){
-  const id=tgrIdPendente(data,p);
-  tgrPlanilhaEnfileirar({idRegistro:id,dataRota:data,rota:p.rota,placa:p.rota,
-   motorista:p.motorista||'',pedido:p.pedido,clienteCodigo:p.cliente,
-   status:'PENDENTE',latitude:null,longitude:null,observacao:'Rota carregada',
-   dataHoraDispositivo:new Date().toISOString()});
- }
- tgrPlanilhaSincronizar();
-}
 function tgrRegistrarInicioNaPlanilha(p){
  tgrPlanilhaEnfileirar({idRegistro:tgrAtendId(),dataRota:tgrDataProgramacao(),
   rota:p.rota,placa:p.rota,motorista:tgrUsuario||p.motorista||'',
