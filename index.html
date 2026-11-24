@@ -726,6 +726,7 @@ async function carregarRotas({atualizar=false}={}){
     preencherPlacas();
     if(aviso)aviso.textContent=offline?'Planejamento salvo no aparelho — confira a data':'Planejamento atualizado e salvo no aparelho';
     tgrImportarRotas();tgrSincronizar();
+    tgrRegistrarPendentesNaPlanilha(novos, data);
   }catch(erro){
     if(numero!==tgrCargaNumero)return;
     console.error('Falha ao carregar histórico TGR:',erro);
@@ -1001,7 +1002,7 @@ function focarPedido(p){
   }
 }
 // ===== AUTENTICAÇÃO E REGISTRO DE ATENDIMENTOS =====
-const TGR_ATEND_URL='https://script.google.com/macros/s/AKfycbzJQvbFk2a4nQfE_v_-atHoNDQCpiovzGXzhwoKHWcrPXFFOHd-1IHEmAA8UNWgvQji/exec';
+const TGR_ATEND_URL='COLE_AQUI_A_URL_DA_NOVA_IMPLANTACAO_EXEC'; // Histórico de rota: nova planilha
 const TGR_ATEND_FILA='tgr_atendimentos_fila_v2';
 let tgrUsuario=null,tgrToken=null,tgrAtendEnviando=false;
 function tgrAtendFila(){try{return JSON.parse(localStorage.getItem(TGR_ATEND_FILA)||'[]')}catch(_){return []}}
@@ -1017,8 +1018,39 @@ function tgrPlanilhaEnfileirar(item){
  if(!item || !/^[a-zA-Z0-9_-]{12,100}$/.test(String(item.idRegistro||''))) {console.error('Planilha: atendimento sem ID válido, não enfileirado',item);return;}
  const fila=tgrPlanilhaFila();if(!fila.some(x=>x.idRegistro===item.idRegistro)){fila.push(item);tgrPlanilhaSalvar(fila);}
 }
+
+// Eventos históricos: a importação registra PENDENTE uma vez por pedido/data.
+// ID determinístico permite deduplicar a mesma importação em aparelhos diferentes.
+function tgrIdPendente(data, p){
+ const texto=[data,p.rota,p.pedido,p.cliente].map(v=>String(v||'').trim()).join('|');
+ let h1=2166136261,h2=2166136261;
+ for(let i=0;i<texto.length;i++){
+  h1=Math.imul(h1^texto.charCodeAt(i),16777619);
+  h2=Math.imul(h2^texto.charCodeAt(i),2246822519);
+ }
+ return 'pend_'+(h1>>>0).toString(16).padStart(8,'0')+(h2>>>0).toString(16).padStart(8,'0');
+}
+function tgrRegistrarPendentesNaPlanilha(lista,data){
+ for(const p of lista){
+  const id=tgrIdPendente(data,p);
+  tgrPlanilhaEnfileirar({idRegistro:id,dataRota:data,rota:p.rota,placa:p.rota,
+   motorista:p.motorista||'',pedido:p.pedido,clienteCodigo:p.cliente,
+   status:'PENDENTE',latitude:null,longitude:null,observacao:'Rota carregada',
+   dataHoraDispositivo:new Date().toISOString()});
+ }
+ tgrPlanilhaSincronizar();
+}
+function tgrRegistrarInicioNaPlanilha(p){
+ tgrPlanilhaEnfileirar({idRegistro:tgrAtendId(),dataRota:tgrDataProgramacao(),
+  rota:p.rota,placa:p.rota,motorista:tgrUsuario||p.motorista||'',
+  pedido:p.pedido,clienteCodigo:p.cliente,status:'EM_ATENDIMENTO',
+  latitude:null,longitude:null,observacao:'Início do atendimento',
+  dataHoraDispositivo:new Date().toISOString()});
+ tgrPlanilhaSincronizar();
+}
+
 async function tgrPlanilhaSincronizar(){
- if(tgrPlanilhaEnviando||!navigator.onLine||!tgrUsuario)return;
+ if(tgrPlanilhaEnviando||!navigator.onLine||!tgrUsuario||!/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec/.test(TGR_ATEND_URL))return;
  tgrPlanilhaEnviando=true;
  try{
   for(const item of tgrPlanilhaFila()){
@@ -1183,7 +1215,8 @@ async function tgrAtendSincronizar(){
       atualizadoEm:firebase.firestore.FieldValue.serverTimestamp()};
     tx.set(ref,registro);
    });
-   if(['ATENDIDO','DEVOLUCAO'].includes(item.status))tgrPlanilhaEnfileirar(item);
+   // Cada evento confirmado no Firebase entra no histórico, inclusive REPASSE.
+   tgrPlanilhaEnfileirar(item);
    tgrAtendSalvar(tgrAtendFila().filter(x=>x.idRegistro!==item.idRegistro));
    tgrRedesenharAtendimento();
    if(tgrToastRegistro===item.idRegistro){
@@ -1231,6 +1264,7 @@ async function alternarStatus(p){
  if(anterior==='pendente'){
   try{localStorage.setItem(chaveStatus(p),'em_atendimento');}
   catch(e){alert('Não foi possível salvar o início do atendimento.');return;}
+  tgrRegistrarInicioNaPlanilha(p);
   tgrRedesenharAtendimento();
  }
  tgrAbrirAtendimento(p);
@@ -1273,7 +1307,7 @@ document.getElementById('tgrConfirmarDevolucao').onclick=()=>tgrEncerrarAtendime
 document.getElementById('tgrRepasseBtn').onclick=()=>{
  const p=tgrPedidoModal;if(!p)return;
  try{
-  const fila=tgrAtendFila();fila.push({idRegistro:tgrAtendId(),clienteCodigo:p.cliente,pedido:p.pedido,rota:p.rota,dataRota:tgrDataProgramacao(),motorista:tgrUsuario,status:'REPASSE'});
+  const fila=tgrAtendFila();fila.push({idRegistro:tgrAtendId(),clienteCodigo:p.cliente,clienteNome:nomeFantasiaCliente(p.cliente),pedido:p.pedido,rota:p.rota,dataRota:tgrDataProgramacao(),placa:p.rota,motorista:tgrUsuario,status:'REPASSE',latitude:null,longitude:null,precisaoMetros:null,dataHoraDispositivo:new Date().toISOString(),observacao:'Repasse registrado'});
   tgrAtendSalvar(fila);localStorage.setItem(chaveStatus(p),'repasse');
  }catch(e){alert('Não foi possível salvar o repasse.');return;}
  tgrAtendSincronizar();
