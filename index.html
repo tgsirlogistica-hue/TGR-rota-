@@ -1002,7 +1002,7 @@ function focarPedido(p){
   }
 }
 // ===== AUTENTICAÇÃO E REGISTRO DE ATENDIMENTOS =====
-const TGR_ATEND_URL='COLE_AQUI_A_URL_DA_NOVA_IMPLANTACAO_EXEC'; // Histórico de rota: nova planilha
+const TGR_ATEND_URL='https://script.google.com/macros/s/AKfycbxn4yOshbeAG701rS30-W7xeb9dL3z4pmpsAkkOdZxLTwMvwxEkEiQ0VoUXJt8VqBMtew/exec'; // Histórico de rota: nova planilha
 const TGR_ATEND_FILA='tgr_atendimentos_fila_v2';
 let tgrUsuario=null,tgrToken=null,tgrAtendEnviando=false;
 function tgrAtendFila(){try{return JSON.parse(localStorage.getItem(TGR_ATEND_FILA)||'[]')}catch(_){return []}}
