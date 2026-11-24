@@ -1008,7 +1008,7 @@ let tgrUsuario=null,tgrToken=null,tgrAtendEnviando=false;
 function tgrAtendFila(){try{return JSON.parse(localStorage.getItem(TGR_ATEND_FILA)||'[]')}catch(_){return []}}
 function tgrAtendSalvar(f){localStorage.setItem(TGR_ATEND_FILA,JSON.stringify(f));}
 function tgrAtendId(){return crypto.randomUUID?crypto.randomUUID():('tgr_'+Date.now()+'_'+Math.random().toString(36).slice(2));}
-// Fila independente para espelhar no Google Planilhas somente após confirmação do Firebase.
+// Fila independente para registrar eventos no Google Sheets sem depender da confirmação do Firebase.
 // Fila V2 separada da fila LEGADA de importação de rotas (359 itens sem idRegistro).
 const TGR_PLANILHA_FILA='tgr_planilha_atendimentos_v2';
 let tgrPlanilhaEnviando=false;
@@ -1192,6 +1192,9 @@ async function tgrAtendSincronizar(){
      continue;
     }
    }
+   // Enfileirar evento histórico antes da confirmação Firebase, com GPS já capturado quando necessário.
+   tgrPlanilhaEnfileirar(item);
+   tgrPlanilhaSincronizar();
    const id=[item.dataRota,item.rota,item.pedido,item.clienteCodigo].map(x=>encodeURIComponent(String(x||'').trim())).join('~');
    const ref=tgrDb.collection('entregas').doc(id);
    await tgrDb.runTransaction(async tx=>{
@@ -1205,8 +1208,7 @@ async function tgrAtendSincronizar(){
       atualizadoEm:firebase.firestore.FieldValue.serverTimestamp()};
     tx.set(ref,registro);
    });
-   // Cada evento confirmado no Firebase entra no histórico, inclusive REPASSE.
-   tgrPlanilhaEnfileirar(item);
+   // Evento já enviado à fila da planilha; sincronização Firebase permanece independente.
    tgrAtendSalvar(tgrAtendFila().filter(x=>x.idRegistro!==item.idRegistro));
    tgrRedesenharAtendimento();
    if(tgrToastRegistro===item.idRegistro){
@@ -1298,7 +1300,11 @@ document.getElementById('tgrRepasseBtn').onclick=()=>{
  const p=tgrPedidoModal;if(!p)return;
  try{
   const fila=tgrAtendFila();fila.push({idRegistro:tgrAtendId(),clienteCodigo:p.cliente,clienteNome:nomeFantasiaCliente(p.cliente),pedido:p.pedido,rota:p.rota,dataRota:tgrDataProgramacao(),placa:p.rota,motorista:tgrUsuario,status:'REPASSE',latitude:null,longitude:null,precisaoMetros:null,dataHoraDispositivo:new Date().toISOString(),observacao:'Repasse registrado'});
-  tgrAtendSalvar(fila);localStorage.setItem(chaveStatus(p),'repasse');
+  tgrAtendSalvar(fila);
+  // Registrar repasse no histórico imediatamente, sem aguardar Firebase.
+  tgrPlanilhaEnfileirar(fila[fila.length-1]);
+  tgrPlanilhaSincronizar();
+  localStorage.setItem(chaveStatus(p),'repasse');
  }catch(e){alert('Não foi possível salvar o repasse.');return;}
  tgrAtendSincronizar();
  tgrFecharAtendimento();tgrRedesenharAtendimento();
