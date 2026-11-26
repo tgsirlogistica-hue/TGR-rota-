@@ -1015,8 +1015,7 @@ function tgrPlanilhaFila(){
   if(!Array.isArray(fila))return [];
   // Descarta apenas os eventos automáticos PENDENTE criados ao abrir planejamentos.
   // Preserva todas as mudanças de status realizadas pelo motorista.
-  const limpa=fila.filter(x=>!(x && x.status==='PENDENTE' &&
-    String(x.idRegistro||'').startsWith('pend_') && x.observacao==='Rota carregada'));
+  const limpa=fila.filter(x=>!(x && (x.status==='EM_ATENDIMENTO' || (x.status==='PENDENTE' && String(x.idRegistro||'').startsWith('pend_') && x.observacao==='Rota carregada'))));
   if(limpa.length!==fila.length)localStorage.setItem(TGR_PLANILHA_FILA,JSON.stringify(limpa));
   return limpa;
  }catch(_){return []}
@@ -1027,21 +1026,15 @@ function tgrPlanilhaEnfileirar(item){
  const fila=tgrPlanilhaFila();if(!fila.some(x=>x.idRegistro===item.idRegistro)){fila.push(item);tgrPlanilhaSalvar(fila);}
 }
 
-function tgrRegistrarInicioNaPlanilha(p){
- tgrPlanilhaEnfileirar({idRegistro:tgrAtendId(),dataRota:tgrDataProgramacao(),
-  rota:p.rota,placa:p.rota,motorista:tgrUsuario||p.motorista||'',
-  pedido:p.pedido,clienteCodigo:p.cliente,clienteNome:nomeFantasiaCliente(p.cliente),status:'EM_ATENDIMENTO',
-  latitude:null,longitude:null,precisaoMetros:null,alteradoPorUid:tgrUsuario||'',observacao:'Início do atendimento',
-  dataHoraDispositivo:new Date().toISOString()});
- tgrPlanilhaSincronizar();
-}
+// Início do atendimento é apenas visual/local; não gera evento no Sheets.
+function tgrRegistrarInicioNaPlanilha(p){ return; }
 
 async function tgrPlanilhaSincronizar(){
  if(tgrPlanilhaEnviando||!navigator.onLine||!tgrUsuario||!/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec/.test(TGR_ATEND_URL))return;
  tgrPlanilhaEnviando=true;
  try{
   for(const item of tgrPlanilhaFila()){
-   if(!/^[a-zA-Z0-9_-]{12,100}$/.test(String(item.idRegistro||''))){console.warn('Planilha: item inválido preservado para revisão',item);break;}
+   if(!/^[a-zA-Z0-9_-]{12,100}$/.test(String(item.idRegistro||''))){console.warn('Planilha: item inválido preservado para revisão',item);continue;}
    // O endpoint já implementa validação e idempotência pelo ID_REGISTRO.
    const payload={...item,acao:'atendimento_local',requisicao:tgrAtendId()};
    try{
@@ -1170,16 +1163,16 @@ async function tgrAtendSincronizar(){
  tgrAtendEnviando=true;
  try{
   for(const item of tgrAtendFila()){
-   if(item.gpsPendente&&['ATENDIDO','DEVOLUCAO'].includes(item.status)){
-    try{
-     const gps=await tgrCapturarGPS();
-     item.latitude=gps.latitude;item.longitude=gps.longitude;item.precisaoMetros=gps.accuracy;item.gpsPendente=false;
-     const fila=tgrAtendFila(),i=fila.findIndex(x=>x.idRegistro===item.idRegistro);
-     if(i>=0){fila[i]={...item};tgrAtendSalvar(fila);}
-    }catch(e){console.warn('GPS pendente; atendimento mantido na fila:',e);continue;}
+   // A fila antiga pode conter inícios; eles não devem bloquear os registros finais.
+   if(item.status==='EM_ATENDIMENTO'||item.status==='PENDENTE'){
+    tgrAtendSalvar(tgrAtendFila().filter(x=>x.idRegistro!==item.idRegistro));
+    continue;
    }
+   if(!['ATENDIDO','DEVOLUCAO','REPASSE'].includes(item.status)){
+    console.warn('Status desconhecido preservado para revisão:',item);continue;
+   }
+   // Enfileirar PRIMEIRO, sem esperar GPS. A ausência de localização não impede a entrega.
    tgrPlanilhaEnfileirar({...item,alteradoPorUid:item.alteradoPorUid||tgrUsuario});
-   // O evento permanece na fila principal até entrar na fila persistente da planilha.
    if(!tgrPlanilhaFila().some(x=>x.idRegistro===item.idRegistro))continue;
    tgrAtendSalvar(tgrAtendFila().filter(x=>x.idRegistro!==item.idRegistro));
   }
@@ -1217,7 +1210,6 @@ async function alternarStatus(p){
  if(anterior==='pendente'){
   try{localStorage.setItem(chaveStatus(p),'em_atendimento');}
   catch(e){alert('Não foi possível salvar o início do atendimento.');return;}
-  tgrRegistrarInicioNaPlanilha(p);
   tgrRedesenharAtendimento();
  }
  tgrAbrirAtendimento(p);
@@ -1237,7 +1229,7 @@ async function tgrEncerrarAtendimento(status,motivo){
   // sem bloquear a interface nem declarar sincronização antes da confirmação.
   const registro={idRegistro:tgrAtendId(),clienteCodigo:p.cliente,clienteNome:nomeFantasiaCliente(p.cliente),pedido:p.pedido,
    rota:p.rota,dataRota:tgrDataProgramacao(),placa:select.value,motorista:tgrUsuario,status,latitude:null,longitude:null,
-   precisaoMetros:null,gpsPendente:true,dataHoraDispositivo:new Date().toISOString(),observacao:String(motivo||'').trim(),origem:'TGR Rota'};
+   precisaoMetros:null,dataHoraDispositivo:new Date().toISOString(),observacao:String(motivo||'').trim(),origem:'TGR Rota'};
   const fila=tgrAtendFila();fila.push(registro);
   // Gravar primeiro a fila e só depois o estado definitivo: não perder o registro.
   tgrAtendSalvar(fila);
