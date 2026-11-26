@@ -976,7 +976,11 @@ async function tgrConsultarCompartilhado(){
    const chave=[x.dataRota,x.rota,x.pedido,x.clienteCodigo].join('|');
    const st={ATENDIDO:'atendido',DEVOLUCAO:'devolvido',REPASSE:'repasse',EM_ATENDIMENTO:'em_atendimento',PENDENTE:'pendente'}[String(x.status||'').toUpperCase()]||'pendente';
    const anterior=tgrCompartilhado.get(chave);
-   vistos.add(chave);tgrCompartilhado.set(chave,st);tgrDadosGPSRemotos.set(chave,x);
+   vistos.add(chave);tgrCompartilhado.set(chave,st);
+   // Preserve coordenadas válidas já vistas se a resposta posterior vier sem GPS.
+   const anteriorGPS=tgrDadosGPSRemotos.get(chave);
+   if(tgrNumeroGPS(x.latitude)!==null&&tgrNumeroGPS(x.longitude)!==null)tgrDadosGPSRemotos.set(chave,x);
+   else if(!anteriorGPS)tgrDadosGPSRemotos.set(chave,x);
    const pedido=dados.find(p=>tgrChaveCompartilhada(p)===chave);
    if(pedido&&!tgrFilaTemPedido(pedido))localStorage.setItem(chaveStatus(pedido),st);
    if(pedido&&anterior==='devolvido'&&st==='pendente')tgrNotificar('Pedido '+pedido.pedido+' reaberto pela distribuição.','sucesso',5000);
@@ -1417,13 +1421,13 @@ function numeroParada(p,i){
 }
 
 
-function tgrNumeroGPS(v){if(v===null||v===undefined||v==='')return null;const n=Number(v);return Number.isFinite(n)?n:null;}
+function tgrNumeroGPS(v){if(v===null||v===undefined||String(v).trim()==='')return null;const n=Number(String(v).trim().replace(',','.'));return Number.isFinite(n)?n:null;}
 function tgrDistanciaMetros(lat1,lon1,lat2,lon2){const r=Math.PI/180,a1=lat1*r,a2=lat2*r,dLat=(lat2-lat1)*r,dLon=(lon2-lon1)*r;const a=Math.sin(dLat/2)**2+Math.cos(a1)*Math.cos(a2)*Math.sin(dLon/2)**2;return 6371000*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));}
 function tgrRaioPedido(p){
  const st=getStatus(p);if(st!=='atendido'&&st!=='devolvido')return null;
  const chave=tgrChaveCompartilhada(p),remoto=tgrDadosGPSRemotos.get(chave);
- const fila=tgrAtendFila().find(x=>tgrChaveRegistro(x)===chave);
- const registro=fila||remoto;
+ const fila=tgrAtendFila().find(x=>tgrChaveRegistro(x)===chave) || tgrPlanilhaFila().find(x=>tgrChaveRegistro(x)===chave);
+ const registro=(fila&&tgrNumeroGPS(fila.latitude)!==null&&tgrNumeroGPS(fila.longitude)!==null)?fila:remoto||fila;
  const lat=tgrNumeroGPS(registro?.latitude),lon=tgrNumeroGPS(registro?.longitude);
  const latCliente=tgrNumeroGPS(p.lat),lonCliente=tgrNumeroGPS(p.lon);
  if(lat===null||lon===null||latCliente===null||lonCliente===null||Math.abs(lat)>90||Math.abs(latCliente)>90||Math.abs(lon)>180||Math.abs(lonCliente)>180)return {estado:'pendente',titulo:'Localização ainda não verificada'};
