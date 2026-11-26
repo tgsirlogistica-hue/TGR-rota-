@@ -295,7 +295,16 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=9').catch(console.warn));
 }
 </script>
-<!-- Persistência dos atendimentos: Google Sheets / Apps Script. Firebase removido. -->
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script>
+const tgrFirebaseApp=firebase.initializeApp({apiKey:"AIzaSyChKi_yZAvB1Zu0lGd0a-JMGgusQdsrcMs",authDomain:"tgr-rota.firebaseapp.com",projectId:"tgr-rota",storageBucket:"tgr-rota.firebasestorage.app",messagingSenderId:"593240013276",appId:"1:593240013276:web:0f7ce27644134e772bf719"});
+const tgrAuth=firebase.auth();
+const tgrDb=firebase.firestore();
+let tgrAuthPromise=null;
+function tgrAutenticarFirebase(){return tgrAuthPromise||(tgrAuthPromise=tgrAuth.signInAnonymously().then(x=>x.user).catch(e=>{tgrAuthPromise=null;throw e;}));}
+</script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
 </head>
 <body>
@@ -935,13 +944,13 @@ setInterval(tgrSincronizar,60000);
 // ===== FIM INTEGRAÇÃO =====
 
 function chaveStatus(p){return 'statusPedidoTGR|'+tgrDataProgramacao()+'|'+p.rota+'|'+p.pedido+'|'+p.cliente;}
-// Google Sheets é a fonte central; localStorage é cache e fila offline.
+// Firestore: fonte central para todos os aparelhos; localStorage é somente cache/fila.
 let tgrDadosGPSRemotos=new Map();
 let tgrCompartilhado=new Map(),tgrConsultaConfirmada=new Set(),tgrDesinscrever=null,tgrAssinatura='',tgrServidorPronto=false;
-let tgrConsultaEmAndamento=false,tgrUltimaConsulta=0;
 function tgrChaveCompartilhada(p){return [tgrDataProgramacao(),p.rota,p.pedido,p.cliente].join('|');}
 function tgrChaveRegistro(x){return [x.dataRota,x.rota,x.pedido,x.clienteCodigo].join('|');}
-function tgrFilaTemPedido(p){return tgrAtendFila().some(x=>tgrChaveRegistro(x)===tgrChaveCompartilhada(p)) || tgrPlanilhaFila().some(x=>tgrChaveRegistro(x)===tgrChaveCompartilhada(p));}
+function tgrFilaTemPedido(p){return tgrAtendFila().some(x=>tgrChaveRegistro(x)===tgrChaveCompartilhada(p));}
+function tgrIdDocumento(p){return [tgrDataProgramacao(),p.rota,p.pedido,p.cliente].map(x=>encodeURIComponent(String(x||'').trim())).join('~');}
 function getStatus(p){
  if(tgrFilaTemPedido(p))return localStorage.getItem(chaveStatus(p))||'pendente';
  const remoto=tgrCompartilhado.get(tgrChaveCompartilhada(p));
@@ -949,43 +958,37 @@ function getStatus(p){
  if(tgrConsultaConfirmada.has(tgrDataProgramacao()+'|'+p.rota))return 'pendente';
  return localStorage.getItem(chaveStatus(p))||'pendente';
 }
-function tgrConsultarJSONP(url){
- return new Promise((resolve,reject)=>{
-  const callback='tgrSheetsCb_'+Math.random().toString(36).slice(2);
-  const script=document.createElement('script');let concluido=false;
-  const timer=setTimeout(()=>terminar(new Error('Consulta de atendimentos sem resposta')),15000);
-  function terminar(erro,dados){if(concluido)return;concluido=true;clearTimeout(timer);delete window[callback];script.remove();erro?reject(erro):resolve(dados);}
-  window[callback]=dados=>terminar(null,dados);
-  script.onerror=()=>terminar(new Error('Falha na consulta do Google Sheets'));
-  script.src=url+(url.includes('?')?'&':'?')+'callback='+callback+'&_='+Date.now();
-  document.head.appendChild(script);
- });
-}
-async function tgrConsultarCompartilhado(){
- if(!tgrUsuario||!select.value||!navigator.onLine||tgrConsultaEmAndamento)return;
+function tgrConsultarCompartilhado(){
+ if(!tgrUsuario||!select.value)return;
  const assinatura=tgrDataProgramacao()+'|'+select.value;
- if(tgrAssinatura===assinatura&&Date.now()-tgrUltimaConsulta<12000)return;
- tgrConsultaEmAndamento=true;
- try{
-  const url=TGR_ATEND_URL+'?acao=atendimentos&data='+encodeURIComponent(tgrDataProgramacao())+'&rota='+encodeURIComponent(select.value);
-  const resposta=await tgrConsultarJSONP(url);
-  if(!resposta||!resposta.sucesso)throw new Error(resposta?.erro||'Consulta recusada');
-  if(assinatura!==tgrDataProgramacao()+'|'+select.value)return;
-  const vistos=new Set();
-  for(const x of resposta.registros||[]){
-   const chave=[x.dataRota,x.rota,x.pedido,x.clienteCodigo].join('|');
-   const st={ATENDIDO:'atendido',DEVOLUCAO:'devolvido',REPASSE:'repasse',EM_ATENDIMENTO:'em_atendimento',PENDENTE:'pendente'}[String(x.status||'').toUpperCase()]||'pendente';
-   const anterior=tgrCompartilhado.get(chave);
-   vistos.add(chave);tgrCompartilhado.set(chave,st);tgrDadosGPSRemotos.set(chave,x);
-   const pedido=dados.find(p=>tgrChaveCompartilhada(p)===chave);
-   if(pedido&&!tgrFilaTemPedido(pedido))localStorage.setItem(chaveStatus(pedido),st);
-   if(pedido&&anterior==='devolvido'&&st==='pendente')tgrNotificar('Pedido '+pedido.pedido+' reaberto pela distribuição.','sucesso',5000);
-  }
-  for(const chave of [...tgrCompartilhado.keys()])if(chave.startsWith(assinatura+'|')&&!vistos.has(chave)){tgrCompartilhado.delete(chave);tgrDadosGPSRemotos.delete(chave);}
-  tgrAssinatura=assinatura;tgrConsultaConfirmada.add(assinatura);tgrServidorPronto=true;tgrUltimaConsulta=Date.now();
-  tgrRedesenharAtendimento();
- }catch(e){console.warn('Google Sheets: falha ao consultar atendimentos',e);}
- finally{tgrConsultaEmAndamento=false;}
+ if(tgrAssinatura===assinatura&&tgrDesinscrever)return;
+ if(tgrDesinscrever){tgrDesinscrever();tgrDesinscrever=null;}
+ tgrAssinatura=assinatura;tgrServidorPronto=false;
+ tgrAutenticarFirebase().then(()=>{
+  if(tgrAssinatura!==assinatura)return;
+  const consulta=tgrDb.collection('entregas').where('dataRota','==',tgrDataProgramacao()).where('rota','==',select.value);
+  tgrDesinscrever=consulta.onSnapshot(snapshot=>{
+   if(tgrAssinatura!==assinatura)return;
+   const vistos=new Set();
+   snapshot.forEach(doc=>{
+    const x=doc.data(),chave=[x.dataRota,x.rota,x.pedido,x.clienteCodigo].join('|');
+    const st={ATENDIDO:'atendido',DEVOLUCAO:'devolvido',REPASSE:'repasse',EM_ATENDIMENTO:'em_atendimento',PENDENTE:'pendente'}[x.status]||'pendente';
+    const anterior=tgrCompartilhado.get(chave);
+    vistos.add(chave);tgrCompartilhado.set(chave,st);tgrDadosGPSRemotos.set(chave,x);
+    const p=dados.find(p=>tgrChaveCompartilhada(p)===chave);
+    // Uma reabertura confirmada pelo servidor tem prioridade sobre o cache antigo.
+    // Não removemos filas pendentes: elas podem conter operações ainda não sincronizadas.
+    if(p&&!tgrFilaTemPedido(p))localStorage.setItem(chaveStatus(p),st);
+    if(p&&anterior==='devolvido'&&st==='pendente'&&!snapshot.metadata.fromCache){
+      tgrNotificar('Pedido '+p.pedido+' reaberto pela distribuição. Nova tentativa liberada.','sucesso',6500);
+    }
+   });
+   for(const k of [...tgrCompartilhado.keys()])if(k.startsWith(assinatura+'|')&&!vistos.has(k)){tgrCompartilhado.delete(k);tgrDadosGPSRemotos.delete(k);}
+   // Apenas respostas do servidor são autoridade; cache offline não apaga dados locais.
+   if(!snapshot.metadata.fromCache){tgrConsultaConfirmada.add(assinatura);tgrServidorPronto=true;}
+   tgrRedesenharAtendimento();
+  },e=>{console.error('Firestore: leitura recusada',e);alert('Não foi possível ler a rota no Firebase: '+e.message);});
+ }).catch(e=>console.error('Firebase: autenticação falhou',e));
 }
 
 function chaveMarcador(p){return p.rota+'|'+p.pedido+'|'+p.cliente;}
@@ -1013,10 +1016,10 @@ function tgrPlanilhaFila(){
  try{
   const fila=JSON.parse(localStorage.getItem(TGR_PLANILHA_FILA)||'[]');
   if(!Array.isArray(fila))return [];
-  // Descarta apenas os eventos automáticos PENDENTE criados ao abrir planejamentos.
-  // Preserva todas as mudanças de status realizadas pelo motorista.
-  const limpa=fila.filter(x=>!(x && x.status==='PENDENTE' &&
-    String(x.idRegistro||'').startsWith('pend_') && x.observacao==='Rota carregada'));
+  // Apenas resultados relevantes devem ser registrados no Histórico de rota.
+  // Remove também eventos antigos ainda aguardando sincronização.
+  const permitidos=new Set(['ATENDIDO','DEVOLUCAO','REPASSE']);
+  const limpa=fila.filter(x=>x && permitidos.has(String(x.status||'').toUpperCase()));
   if(limpa.length!==fila.length)localStorage.setItem(TGR_PLANILHA_FILA,JSON.stringify(limpa));
   return limpa;
  }catch(_){return []}
@@ -1027,14 +1030,8 @@ function tgrPlanilhaEnfileirar(item){
  const fila=tgrPlanilhaFila();if(!fila.some(x=>x.idRegistro===item.idRegistro)){fila.push(item);tgrPlanilhaSalvar(fila);}
 }
 
-function tgrRegistrarInicioNaPlanilha(p){
- tgrPlanilhaEnfileirar({idRegistro:tgrAtendId(),dataRota:tgrDataProgramacao(),
-  rota:p.rota,placa:p.rota,motorista:tgrUsuario||p.motorista||'',
-  pedido:p.pedido,clienteCodigo:p.cliente,clienteNome:nomeFantasiaCliente(p.cliente),status:'EM_ATENDIMENTO',
-  latitude:null,longitude:null,precisaoMetros:null,alteradoPorUid:tgrUsuario||'',observacao:'Início do atendimento',
-  dataHoraDispositivo:new Date().toISOString()});
- tgrPlanilhaSincronizar();
-}
+// O início do atendimento é mantido apenas localmente; não cria linha na planilha.
+function tgrRegistrarInicioNaPlanilha(p){ return; }
 
 async function tgrPlanilhaSincronizar(){
  if(tgrPlanilhaEnviando||!navigator.onLine||!tgrUsuario||!/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec/.test(TGR_ATEND_URL))return;
@@ -1047,8 +1044,6 @@ async function tgrPlanilhaSincronizar(){
    try{
     await tgrApi(payload);
     tgrPlanilhaSalvar(tgrPlanilhaFila().filter(x=>x.idRegistro!==item.idRegistro));
-    if(tgrToastRegistro===item.idRegistro){tgrToastRegistro=null;tgrNotificar('Pedido '+item.pedido+' registrado no Google Sheets.','sucesso',4000);}
-    tgrUltimaConsulta=0;setTimeout(tgrConsultarCompartilhado,250);
    }catch(e){console.warn('Planilha: registro pendente, nova tentativa posteriormente',item.idRegistro,e);break;}
   }
  }finally{tgrPlanilhaEnviando=false;}
@@ -1143,6 +1138,8 @@ async function tgrLogin(senha){
     if(!tgrUsuario)throw new Error('Cadastro sem nome de usuário.');
     tgrToken='LOGIN_LOCAL';
     await tgrSalvarAutorizacaoOffline(tgrUsuario,senha);
+    // Falhas de conexão com Firebase não invalidam o login já validado na planilha.
+    try{await tgrAutenticarFirebase();}catch(e){console.warn('Firebase indisponível temporariamente:',e);}
     sessionStorage.setItem('tgr_sessao_v1',JSON.stringify({usuario:tgrUsuario,token:tgrToken}));
     tgrAtendSincronizar();tgrPlanilhaSincronizar();tgrConsultarCompartilhado();
     return {usuario:tgrUsuario,offline:false};
@@ -1169,23 +1166,59 @@ async function tgrAtendSincronizar(){
  if(tgrAtendEnviando||!navigator.onLine||!tgrUsuario)return;
  tgrAtendEnviando=true;
  try{
+  await tgrAutenticarFirebase();
   for(const item of tgrAtendFila()){
-   if(item.gpsPendente&&['ATENDIDO','DEVOLUCAO'].includes(item.status)){
+   // O GPS é obtido em segundo plano: nunca bloqueia o toque do motorista.
+   // Atendimentos antigos com coordenadas nulas continuam com o comportamento anterior.
+   if(item.gpsPendente && ['ATENDIDO','DEVOLUCAO'].includes(item.status)){
     try{
      const gps=await tgrCapturarGPS();
-     item.latitude=gps.latitude;item.longitude=gps.longitude;item.precisaoMetros=gps.accuracy;item.gpsPendente=false;
-     const fila=tgrAtendFila(),i=fila.findIndex(x=>x.idRegistro===item.idRegistro);
-     if(i>=0){fila[i]={...item};tgrAtendSalvar(fila);}
-    }catch(e){console.warn('GPS pendente; atendimento mantido na fila:',e);continue;}
+     item.latitude=gps.latitude;item.longitude=gps.longitude;
+     item.precisaoMetros=gps.accuracy;
+     item.gpsPendente=false;
+     tgrRedesenharAtendimento();
+     const atual=tgrAtendFila();
+     const pos=atual.findIndex(x=>x.idRegistro===item.idRegistro);
+     if(pos>=0){atual[pos]={...atual[pos],latitude:item.latitude,longitude:item.longitude,precisaoMetros:item.precisaoMetros,gpsPendente:false};tgrAtendSalvar(atual);}
+    }catch(e){
+     console.warn('GPS pendente; atendimento preservado para nova tentativa:',e.message);
+     if(tgrToastRegistro===item.idRegistro)tgrNotificar('Pedido '+item.pedido+' salvo. GPS indisponível; sincronização pendente.','info',5000);
+     continue;
+    }
    }
-   tgrPlanilhaEnfileirar({...item,alteradoPorUid:item.alteradoPorUid||tgrUsuario});
-   // O evento permanece na fila principal até entrar na fila persistente da planilha.
-   if(!tgrPlanilhaFila().some(x=>x.idRegistro===item.idRegistro))continue;
+   // Enfileirar evento histórico antes da confirmação Firebase, com GPS já capturado quando necessário.
+   tgrPlanilhaEnfileirar(item);
+   tgrPlanilhaSincronizar();
+   const id=[item.dataRota,item.rota,item.pedido,item.clienteCodigo].map(x=>encodeURIComponent(String(x||'').trim())).join('~');
+   const ref=tgrDb.collection('entregas').doc(id);
+   await tgrDb.runTransaction(async tx=>{
+    const snap=await tx.get(ref),anterior=snap.exists?snap.data():null;
+    if(anterior&&['ATENDIDO','DEVOLUCAO'].includes(anterior.status)&&anterior.idRegistro!==item.idRegistro)
+      throw new Error('CONFLITO: pedido já encerrado em outro aparelho');
+    const registro={idRegistro:item.idRegistro,dataRota:item.dataRota,rota:item.rota,pedido:item.pedido,clienteCodigo:item.clienteCodigo,
+      clienteNome:item.clienteNome||'',motorista:item.motorista||'',placa:item.placa||'',status:item.status,
+      observacao:item.observacao||'',latitude:item.latitude??null,longitude:item.longitude??null,precisaoMetros:item.precisaoMetros??null,
+      dataHoraDispositivo:item.dataHoraDispositivo||new Date().toISOString(),alteradoPorUid:tgrAuth.currentUser.uid,
+      atualizadoEm:firebase.firestore.FieldValue.serverTimestamp()};
+    tx.set(ref,registro);
+   });
+   // Evento já enviado à fila da planilha; sincronização Firebase permanece independente.
    tgrAtendSalvar(tgrAtendFila().filter(x=>x.idRegistro!==item.idRegistro));
+   tgrRedesenharAtendimento();
+   if(tgrToastRegistro===item.idRegistro){
+    tgrToastRegistro=null;
+    tgrNotificar('Pedido '+item.pedido+' sincronizado com sucesso no Firebase!','sucesso',4000);
+   }
+   tgrPlanilhaSincronizar();
   }
-  await tgrPlanilhaSincronizar();
- }catch(e){console.error('Falha ao preparar sincronização Sheets:',e);}
- finally{tgrAtendEnviando=false;}
+ }catch(e){
+  console.error('Firestore: gravação não confirmada',e);
+  if(String(e.message||'').startsWith('CONFLITO:')){
+   const item=tgrAtendFila()[0];
+   if(item){const conflitos=JSON.parse(localStorage.getItem('tgr_conflitos_v1')||'[]');conflitos.push({...item,erro:e.message});localStorage.setItem('tgr_conflitos_v1',JSON.stringify(conflitos));tgrAtendSalvar(tgrAtendFila().slice(1));}
+   tgrNotificar('Conflito: pedido já encerrado em outro aparelho. Registro preservado para conferência.','erro',6000);
+  }
+ }finally{tgrAtendEnviando=false;}
 }
 
 window.addEventListener('online',()=>{tgrAtendSincronizar();tgrPlanilhaSincronizar();});
@@ -1217,7 +1250,6 @@ async function alternarStatus(p){
  if(anterior==='pendente'){
   try{localStorage.setItem(chaveStatus(p),'em_atendimento');}
   catch(e){alert('Não foi possível salvar o início do atendimento.');return;}
-  tgrRegistrarInicioNaPlanilha(p);
   tgrRedesenharAtendimento();
  }
  tgrAbrirAtendimento(p);
@@ -1245,7 +1277,7 @@ async function tgrEncerrarAtendimento(status,motivo){
   document.getElementById('tgrAtendimentoModal').classList.remove('ativo');tgrPedidoModal=null;
   tgrRedesenharAtendimento();
   tgrToastRegistro=registro.idRegistro;
-  tgrNotificar('Pedido '+p.pedido+' salvo. Aguardando sincronização com o Google Sheets.','info',5000);
+  tgrNotificar('Pedido '+p.pedido+' salvo. Aguardando sincronização com o Firebase.','info',5000);
   setTimeout(()=>tgrAtendSincronizar(),0);
  }catch(err){tgrNotificar((err&&err.message)||'Falha ao salvar o atendimento.','erro',5000);}
  finally{tgrFinalizando=false;btn.disabled=false;}
@@ -1262,6 +1294,9 @@ document.getElementById('tgrRepasseBtn').onclick=()=>{
  try{
   const fila=tgrAtendFila();fila.push({idRegistro:tgrAtendId(),clienteCodigo:p.cliente,clienteNome:nomeFantasiaCliente(p.cliente),pedido:p.pedido,rota:p.rota,dataRota:tgrDataProgramacao(),placa:p.rota,motorista:tgrUsuario,status:'REPASSE',latitude:null,longitude:null,precisaoMetros:null,dataHoraDispositivo:new Date().toISOString(),observacao:'Repasse registrado'});
   tgrAtendSalvar(fila);
+  // Registrar repasse no histórico imediatamente, sem aguardar Firebase.
+  tgrPlanilhaEnfileirar(fila[fila.length-1]);
+  tgrPlanilhaSincronizar();
   localStorage.setItem(chaveStatus(p),'repasse');
  }catch(e){alert('Não foi possível salvar o repasse.');return;}
  tgrAtendSincronizar();
@@ -1274,7 +1309,7 @@ setInterval(tgrAtendSincronizar,45000);
 setInterval(tgrConsultarCompartilhado,15000);
 window.addEventListener('online',()=>{tgrAtendSincronizar();tgrConsultarCompartilhado();});
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)tgrConsultarCompartilhado();});
-select.addEventListener('change',()=>{tgrCompartilhado.clear();tgrAssinatura='';tgrUltimaConsulta=0;setTimeout(tgrConsultarCompartilhado,100);});
+select.addEventListener('change',()=>{tgrCompartilhado.clear();setTimeout(tgrConsultarCompartilhado,100);});
 // ===== FIM AUTENTICAÇÃO E REGISTRO =====
 
 function abrirPagamento(p){
@@ -1757,7 +1792,7 @@ document.addEventListener('DOMContentLoaded',function(){
    }
    return {itens,cont,total:itens.length};
  }
- // Reaproveita a última consulta do Google Sheets para o resumo da rota.
+ // Reaproveita o listener Firestore já aberto para a rota, sem nova leitura.
  function consultarAtendimentosServidor(atual){
    if(chave()!==atual || !tgrServidorPronto || tgrAssinatura!==atual)return;
    const mapa=new Map();
