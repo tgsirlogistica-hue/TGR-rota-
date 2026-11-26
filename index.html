@@ -1230,6 +1230,8 @@ async function tgrEncerrarAtendimento(status,motivo){
   const registro={idRegistro:tgrAtendId(),clienteCodigo:p.cliente,clienteNome:nomeFantasiaCliente(p.cliente),pedido:p.pedido,
    rota:p.rota,dataRota:tgrDataProgramacao(),placa:select.value,motorista:tgrUsuario,status,latitude:null,longitude:null,
    precisaoMetros:null,dataHoraDispositivo:new Date().toISOString(),observacao:String(motivo||'').trim(),origem:'TGR Rota'};
+  try { const coords=await tgrCapturarGPS(); registro.latitude=coords.latitude; registro.longitude=coords.longitude; registro.precisaoMetros=coords.accuracy; }
+  catch(gpsErro) { console.warn('Atividade salva sem GPS:',gpsErro); tgrNotificar('Localização indisponível. O registro será salvo mesmo assim.','info',3500); }
   const fila=tgrAtendFila();fila.push(registro);
   // Gravar primeiro a fila e só depois o estado definitivo: não perder o registro.
   tgrAtendSalvar(fila);
@@ -1249,10 +1251,13 @@ document.getElementById('tgrDevolucaoBtn').onclick=()=>{
  document.getElementById('tgrMotivoTexto').focus();
 };
 document.getElementById('tgrConfirmarDevolucao').onclick=()=>tgrEncerrarAtendimento('DEVOLUCAO',document.getElementById('tgrMotivoTexto').value);
-document.getElementById('tgrRepasseBtn').onclick=()=>{
+document.getElementById('tgrRepasseBtn').onclick=async()=>{
  const p=tgrPedidoModal;if(!p)return;
  try{
-  const fila=tgrAtendFila();fila.push({idRegistro:tgrAtendId(),clienteCodigo:p.cliente,clienteNome:nomeFantasiaCliente(p.cliente),pedido:p.pedido,rota:p.rota,dataRota:tgrDataProgramacao(),placa:p.rota,motorista:tgrUsuario,status:'REPASSE',latitude:null,longitude:null,precisaoMetros:null,dataHoraDispositivo:new Date().toISOString(),observacao:'Repasse registrado'});
+  const registro={idRegistro:tgrAtendId(),clienteCodigo:p.cliente,clienteNome:nomeFantasiaCliente(p.cliente),pedido:p.pedido,rota:p.rota,dataRota:tgrDataProgramacao(),placa:p.rota,motorista:tgrUsuario,status:'REPASSE',latitude:null,longitude:null,precisaoMetros:null,dataHoraDispositivo:new Date().toISOString(),observacao:'Repasse registrado'};
+  try { const coords=await tgrCapturarGPS(); registro.latitude=coords.latitude; registro.longitude=coords.longitude; registro.precisaoMetros=coords.accuracy; }
+  catch(gpsErro) { console.warn('Repasse salvo sem GPS:',gpsErro); tgrNotificar('Localização indisponível. O repasse será salvo mesmo assim.','info',3500); }
+  const fila=tgrAtendFila();fila.push(registro);
   tgrAtendSalvar(fila);
   localStorage.setItem(chaveStatus(p),'repasse');
  }catch(e){alert('Não foi possível salvar o repasse.');return;}
