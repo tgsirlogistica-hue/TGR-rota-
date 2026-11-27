@@ -288,6 +288,15 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
 .tgrRaioIcone svg{width:17px;height:17px;display:block}
 .pedidoTopo .tgrRaioIcone{margin:0 7px}
 .pedidoTopo{gap:5px}.pedidoTopo .pedidoNum{min-width:0;flex:1}.pedidoTopo .pedidoPeso{white-space:nowrap;flex:none}
+
+/* Indicadores compactos, somente leitura: não alteram atendimentos ou sincronização. */
+.tgrMiniGraficos{display:none;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;padding-top:9px;border-top:1px solid #eee}
+.tgrMiniCard{min-width:0;background:#f8fafc;border:1px solid #e5e7eb;border-radius:10px;padding:9px 5px;text-align:center}
+.tgrMiniTitulo{font-size:11px;font-weight:700;color:#374151;margin-bottom:7px}
+.tgrMiniRosca{width:76px;height:76px;border-radius:50%;margin:0 auto 6px;display:grid;place-items:center;background:#e5e7eb;position:relative}
+.tgrMiniRosca::before{content:'';position:absolute;inset:12px;border-radius:50%;background:#f8fafc}
+.tgrMiniRosca span{position:relative;font-size:16px;font-weight:800;color:#1f2937}
+.tgrMiniDescricao{font-size:10px;color:#64748b;line-height:1.3;min-height:26px}
 </style>
 <script>
 // TGR Offline V2 - registra o Service Worker assim que possível.
@@ -333,6 +342,10 @@ if ('serviceWorker' in navigator) {
   <h2>Rotas TGR</h2>
   <div style="display:none"><select id="placa"><option value="">Selecione a placa...</option></select></div>
   <div id="info" class="info"></div>
+  <div id="tgrMiniGraficos" class="tgrMiniGraficos" aria-label="Indicadores da rota" aria-live="polite">
+    <div class="tgrMiniCard"><div class="tgrMiniTitulo">Entregas atendidas</div><div id="tgrMiniEntrega" class="tgrMiniRosca"><span id="tgrMiniEntregaPct">—</span></div><div id="tgrMiniEntregaTexto" class="tgrMiniDescricao">Aguardando rota</div></div>
+    <div class="tgrMiniCard"><div class="tgrMiniTitulo">Aderência ao raio</div><div id="tgrMiniRaio" class="tgrMiniRosca"><span id="tgrMiniRaioPct">—</span></div><div id="tgrMiniRaioTexto" class="tgrMiniDescricao">Limite de 150 m</div></div>
+  </div>
 <button id="trocarRota" type="button">VOLTAR</button>
   <div id="pedidos" class="pedidos"></div>
 </div>
@@ -1844,6 +1857,54 @@ document.addEventListener('DOMContentLoaded',function(){
  window.addEventListener('online',verificar);
  // A verificação local reaproveita o listener da rota; não gera leituras extras.
  setInterval(verificar,1500);
+})();
+</script>
+
+<script>
+/* Painel visual isolado: consulta apenas o estado já calculado pelo GPS. */
+(function(){
+  const el=id=>document.getElementById(id);
+  function desenharRosca(id,pct,cor){
+    const node=el(id);if(!node)return;
+    const valor=pct===null?0:Math.max(0,Math.min(100,pct));
+    node.style.background=pct===null?'#e5e7eb':`conic-gradient(${cor} 0% ${valor}%, #e5e7eb ${valor}% 100%)`;
+  }
+  function atualizar(){
+    const painel=el('tgrMiniGraficos'),placa=el('placa')?.value;
+    if(!painel)return;
+    const autorizado=el('telaInicial')?.style.display==='none';
+    if(!placa||!autorizado||typeof dados==='undefined'||typeof getStatus!=='function'){
+      painel.style.display='none';return;
+    }
+    const itens=dados.filter(p=>p.rota===placa);
+    painel.style.display=itens.length?'grid':'none';
+    if(!itens.length)return;
+    let atendidos=0,dentro=0,fora=0,semGPS=0;
+    for(const pedido of itens){
+      const status=getStatus(pedido);
+      if(status==='atendido')atendidos++;
+      if(status==='atendido'||status==='devolvido'){
+        const raio=typeof tgrRaioPedido==='function'?tgrRaioPedido(pedido):null;
+        if(raio?.estado==='dentro')dentro++;
+        else if(raio?.estado==='fora')fora++;
+        else semGPS++;
+      }
+    }
+    const eficiencia=100*atendidos/itens.length;
+    const verificados=dentro+fora;
+    const aderencia=verificados?100*dentro/verificados:null;
+    desenharRosca('tgrMiniEntrega',eficiencia,'#178e40');
+    desenharRosca('tgrMiniRaio',aderencia,'#1565c0');
+    el('tgrMiniEntregaPct').textContent=eficiencia.toLocaleString('pt-BR',{maximumFractionDigits:0})+'%';
+    el('tgrMiniEntregaTexto').textContent=atendidos+' de '+itens.length+' pedidos atendidos';
+    el('tgrMiniRaioPct').textContent=aderencia===null?'—':aderencia.toLocaleString('pt-BR',{maximumFractionDigits:0})+'%';
+    el('tgrMiniRaioTexto').textContent=verificados?dentro+' dentro · '+fora+' fora'+(semGPS?' · '+semGPS+' sem GPS':''):'Sem localização verificada';
+  }
+  document.addEventListener('DOMContentLoaded',()=>{
+    el('placa')?.addEventListener('change',atualizar);
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden)atualizar();});
+    atualizar();setInterval(atualizar,3000);
+  });
 })();
 </script>
 </body>
