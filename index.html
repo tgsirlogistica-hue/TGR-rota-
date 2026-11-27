@@ -288,6 +288,18 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
 .tgrRaioIcone svg{width:17px;height:17px;display:block}
 .pedidoTopo .tgrRaioIcone{margin:0 7px}
 .pedidoTopo{gap:5px}.pedidoTopo .pedidoNum{min-width:0;flex:1}.pedidoTopo .pedidoPeso{white-space:nowrap;flex:none}
+
+/* Mini indicadores da rota, ao lado dos dados do motorista */
+.tgrResumoLinha{display:grid;grid-template-columns:minmax(0,1fr) 150px;align-items:center;gap:9px}
+.tgrResumoDados{min-width:0;overflow-wrap:anywhere}
+.tgrMiniGraficos{display:flex;justify-content:flex-end;align-items:center;gap:8px}
+.tgrMiniBloco{text-align:center;width:70px;min-width:0}
+.tgrMiniRosca{width:58px;height:58px;border-radius:50%;margin:0 auto 4px;display:grid;place-items:center;background:#e4e7eb}
+.tgrMiniCentro{width:39px;height:39px;border-radius:50%;background:#fff;display:flex;flex-direction:column;justify-content:center;align-items:center}
+.tgrMiniCentro strong{font-size:12px;color:#293344;line-height:1.2}
+.tgrMiniBloco small{font-size:9px;line-height:1.15;color:#677181;display:block}
+.tgrMiniBloco .tgrMiniDetalhe{font-size:9px;color:#555;margin-top:3px}
+@media(max-width:390px){.tgrResumoLinha{grid-template-columns:minmax(0,1fr) 130px;gap:5px}.tgrMiniGraficos{gap:4px}.tgrMiniBloco{width:63px}.tgrMiniRosca{width:52px;height:52px}.tgrMiniCentro{width:35px;height:35px}}
 </style>
 <script>
 // TGR Offline V2 - registra o Service Worker assim que possível.
@@ -1191,7 +1203,7 @@ setInterval(()=>{if(navigator.onLine&&tgrUsuario){tgrAtendSincronizar();tgrPlani
 // Um pedido encerrado não pode ser reaberto pelo motorista.
 // O status local é mantido entre sessões no mesmo navegador.
 let tgrPedidoModal=null,tgrFinalizando=false;
-function tgrRedesenharAtendimento(){renderPedidos(select.value);renderMapa(select.value);}
+function tgrRedesenharAtendimento(){renderPedidos(select.value);renderMapa(select.value);tgrAtualizarMiniGraficos();}
 function tgrAbrirAtendimento(p){
  tgrPedidoModal=p;
  const modal=document.getElementById('tgrAtendimentoModal');
@@ -1440,6 +1452,46 @@ function tgrIconeRaioPedido(p){
  return '<span class="tgrRaioIcone '+raio.estado+'" role="img" aria-label="'+esc(raio.titulo)+'" title="'+esc(raio.titulo)+'"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M13.5 2 5 13h6l-1 9 9-13h-6l2-7z" fill="currentColor"/>'+(riscado?'<path d="M3 3 21 21" stroke="white" stroke-width="2.7" stroke-linecap="round"/>':'')+'</svg></span>';
 }
 
+function tgrAtualizarMiniGraficos(){
+ const area=document.getElementById('tgrMiniGraficos');
+ if(!area||!select.value)return;
+ const itens=itensDaRotaOrdenados(select.value);
+ const cont={atendido:0,devolvido:0,repasse:0,pendente:0};
+ let dentro=0,fora=0,semMedicao=0;
+ for(const p of itens){
+   const st=getStatus(p);
+   if(st==='atendido')cont.atendido++;
+   else if(st==='devolvido')cont.devolvido++;
+   else if(st==='repasse')cont.repasse++;
+   else cont.pendente++;
+   if(st==='atendido'||st==='devolvido'){
+     const raio=tgrRaioPedido(p);
+     if(raio?.estado==='dentro')dentro++;
+     else if(raio?.estado==='fora')fora++;
+     else semMedicao++;
+   }
+ }
+ function rosca(id,partes,total,texto,detalhe){
+   const graf=area.querySelector('#'+id);if(!graf)return;
+   let pos=0;const fatias=[];
+   for(const [valor,cor] of partes){
+     if(valor<=0||total<=0)continue;
+     const fim=pos+valor/total*100;
+     fatias.push(cor+' '+pos.toFixed(3)+'% '+fim.toFixed(3)+'%');pos=fim;
+   }
+   graf.style.background=fatias.length?'conic-gradient('+fatias.join(',')+')':'#e4e7eb';
+   graf.querySelector('strong').textContent=texto;
+   graf.parentElement.querySelector('.tgrMiniDetalhe').textContent=detalhe;
+ }
+ const total=itens.length;
+ rosca('tgrMiniEntregas',[[cont.atendido,'#16843c'],[cont.devolvido,'#656b75'],[cont.repasse,'#e0ac2d'],[cont.pendente,'#d5281a']],total,
+   total?Math.round(cont.atendido/total*100)+'%':'—',cont.atendido+' atend. · '+cont.pendente+' pend. · '+cont.devolvido+' dev.');
+ const medidos=dentro+fora,finalizados=medidos+semMedicao;
+ rosca('tgrMiniRaio',[[dentro,'#16843c'],[fora,'#d5281a'],[semMedicao,'#b7c0cb']],finalizados,
+   medidos?Math.round(dentro/medidos*100)+'%':'—',dentro+' dentro · '+fora+' fora'+(semMedicao?' · '+semMedicao+' s/ GPS':''));
+ area.querySelector('#tgrMiniRaio').title='Aderência de 150 m: '+dentro+' dentro, '+fora+' fora, '+semMedicao+' sem GPS. Percentual somente entre medições válidas.';
+ area.querySelector('#tgrMiniEntregas').title='Atendidos: '+cont.atendido+'; pendentes: '+cont.pendente+'; devolvidos: '+cont.devolvido+'; repasses: '+cont.repasse;
+}
 function renderPedidos(placa){
   const box=document.getElementById('pedidos');
   if(placa!==placaPosicaoListaTGR){
@@ -1560,13 +1612,17 @@ select.addEventListener('change',()=>{
   const motorista=itens[0].motorista||'Não informado';
   const peso=itens.reduce((s,x)=>s+pesoNum(x.peso),0);
   const cidades=[...new Set(itens.map(x=>String(x.cidade||'').trim()).filter(Boolean))];
-  info.innerHTML='<b>Motorista:</b> '+esc(motorista)+'<br><b>Entregas:</b> '+itens.length+
+  info.innerHTML='<div class="tgrResumoLinha"><div class="tgrResumoDados"><b>Motorista:</b> '+esc(motorista)+'<br><b>Entregas:</b> '+itens.length+
     '<br><b>Peso total:</b> '+peso.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+' kg'+
-    '<br><b>Cidade'+(cidades.length>1?'s':'')+':</b> '+(cidades.length?cidades.map(esc).join(', '):'Não informada');
+    '<br><b>Cidade'+(cidades.length>1?'s':'')+':</b> '+(cidades.length?cidades.map(esc).join(', '):'Não informada')+'</div>'+
+    '<div class="tgrMiniGraficos" id="tgrMiniGraficos">'+
+    '<div class="tgrMiniBloco"><div class="tgrMiniRosca" id="tgrMiniEntregas"><div class="tgrMiniCentro"><strong>—</strong></div></div><small>Entregas</small><div class="tgrMiniDetalhe"></div></div>'+
+    '<div class="tgrMiniBloco"><div class="tgrMiniRosca" id="tgrMiniRaio"><div class="tgrMiniCentro"><strong>—</strong></div></div><small>Raio 150 m</small><div class="tgrMiniDetalhe"></div></div></div></div>';
   info.style.display='block';
 
   renderPedidos(placa);
   renderMapa(placa);
+  tgrAtualizarMiniGraficos();
 });
 </script>
 
