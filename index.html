@@ -297,6 +297,18 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
 .tgrMiniRosca::before{content:'';position:absolute;inset:12px;border-radius:50%;background:#f8fafc}
 .tgrMiniRosca span{position:relative;font-size:16px;font-weight:800;color:#1f2937}
 .tgrMiniDescricao{font-size:10px;color:#64748b;line-height:1.3;min-height:26px}
+
+/* Indicadores compactos alinhados à direita das informações da rota. */
+.tgrResumoLinha{display:flex;align-items:center;gap:9px;border-top:1px solid #ddd;margin-top:9px;padding-top:8px;min-width:0}
+.tgrResumoLinha #info.info{display:none;flex:1 1 51%;min-width:0;margin:0;padding:0;border:0;font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+.tgrResumoLinha .tgrMiniGraficos{display:none;flex:0 1 49%;min-width:0;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;margin:0;padding:0;border:0}
+.tgrResumoLinha .tgrMiniCard{padding:6px 2px;border-radius:8px;background:#fafafa}
+.tgrResumoLinha .tgrMiniTitulo{font-size:9px;margin-bottom:4px;line-height:1.15;min-height:21px}
+.tgrResumoLinha .tgrMiniRosca{width:49px;height:49px;margin:0 auto 4px}
+.tgrResumoLinha .tgrMiniRosca::before{inset:9px}
+.tgrResumoLinha .tgrMiniRosca span{font-size:11px}
+.tgrResumoLinha .tgrMiniDescricao{font-size:9px;line-height:1.25;min-height:0}
+@media(max-width:370px){.tgrResumoLinha{gap:5px}.tgrResumoLinha #info.info{font-size:11px}.tgrResumoLinha .tgrMiniRosca{width:43px;height:43px}.tgrResumoLinha .tgrMiniTitulo{font-size:8px}}
 </style>
 <script>
 // TGR Offline V2 - registra o Service Worker assim que possível.
@@ -341,11 +353,11 @@ if ('serviceWorker' in navigator) {
 <div class="topo">
   <h2>Rotas TGR</h2>
   <div style="display:none"><select id="placa"><option value="">Selecione a placa...</option></select></div>
-  <div id="info" class="info"></div>
+  <div class="tgrResumoLinha"><div id="info" class="info"></div>
   <div id="tgrMiniGraficos" class="tgrMiniGraficos" aria-label="Indicadores da rota" aria-live="polite">
-    <div class="tgrMiniCard"><div class="tgrMiniTitulo">Entregas atendidas</div><div id="tgrMiniEntrega" class="tgrMiniRosca"><span id="tgrMiniEntregaPct">—</span></div><div id="tgrMiniEntregaTexto" class="tgrMiniDescricao">Aguardando rota</div></div>
+    <div class="tgrMiniCard"><div class="tgrMiniTitulo">Situação da rota</div><div id="tgrMiniEntrega" class="tgrMiniRosca"><span id="tgrMiniEntregaPct">—</span></div><div id="tgrMiniEntregaTexto" class="tgrMiniDescricao">Aguardando rota</div></div>
     <div class="tgrMiniCard"><div class="tgrMiniTitulo">Aderência ao raio</div><div id="tgrMiniRaio" class="tgrMiniRosca"><span id="tgrMiniRaioPct">—</span></div><div id="tgrMiniRaioTexto" class="tgrMiniDescricao">Limite de 150 m</div></div>
-  </div>
+  </div></div>
 <button id="trocarRota" type="button">VOLTAR</button>
   <div id="pedidos" class="pedidos"></div>
 </div>
@@ -1879,10 +1891,11 @@ document.addEventListener('DOMContentLoaded',function(){
     const itens=dados.filter(p=>p.rota===placa);
     painel.style.display=itens.length?'grid':'none';
     if(!itens.length)return;
-    let atendidos=0,dentro=0,fora=0,semGPS=0;
+    let atendidos=0,devolvidos=0,dentro=0,fora=0,semGPS=0;
     for(const pedido of itens){
       const status=getStatus(pedido);
       if(status==='atendido')atendidos++;
+      if(status==='devolvido')devolvidos++;
       if(status==='atendido'||status==='devolvido'){
         const raio=typeof tgrRaioPedido==='function'?tgrRaioPedido(pedido):null;
         if(raio?.estado==='dentro')dentro++;
@@ -1893,10 +1906,14 @@ document.addEventListener('DOMContentLoaded',function(){
     const eficiencia=100*atendidos/itens.length;
     const verificados=dentro+fora;
     const aderencia=verificados?100*dentro/verificados:null;
-    desenharRosca('tgrMiniEntrega',eficiencia,'#178e40');
+    const restante=Math.max(0,itens.length-atendidos-devolvidos);
+    const fatias=[['#178e40',atendidos],['#c62828',devolvidos],['#d1d5db',restante]];
+    let pos=0;const partes=[];
+    for(const [cor,n] of fatias){if(n<=0)continue;const ini=pos;pos+=100*n/itens.length;partes.push(cor+' '+ini.toFixed(3)+'% '+pos.toFixed(3)+'%');}
+    el('tgrMiniEntrega').style.background='conic-gradient('+partes.join(',')+')';
     desenharRosca('tgrMiniRaio',aderencia,'#1565c0');
     el('tgrMiniEntregaPct').textContent=eficiencia.toLocaleString('pt-BR',{maximumFractionDigits:0})+'%';
-    el('tgrMiniEntregaTexto').textContent=atendidos+' de '+itens.length+' pedidos atendidos';
+    el('tgrMiniEntregaTexto').textContent=atendidos+' atend. · '+restante+' faltam · '+devolvidos+' devol.';
     el('tgrMiniRaioPct').textContent=aderencia===null?'—':aderencia.toLocaleString('pt-BR',{maximumFractionDigits:0})+'%';
     el('tgrMiniRaioTexto').textContent=verificados?dentro+' dentro · '+fora+' fora'+(semGPS?' · '+semGPS+' sem GPS':''):'Sem localização verificada';
   }
