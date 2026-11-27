@@ -1227,8 +1227,8 @@ function tgrMiniGraficosRota(placa){
  const primeiro='conic-gradient(#16843c 0% '+pctAtendidos+'%,#64748b '+pctAtendidos+'% '+(pctAtendidos+pctDevolvidos)+'%,#e5e7eb '+(pctAtendidos+pctDevolvidos)+'% 100%)';
  const segundo=avaliados?'conic-gradient(#16843c 0% '+pctDentro+'%,#d44848 '+pctDentro+'% 100%)':'#e5e7eb';
  return '<div class="tgrMiniGraficos" aria-label="Desempenho da rota">'+
- '<div class="tgrMiniGrafico" title="Atendidos: '+atendidos+'; restantes: '+restantes+'; devolvidos: '+devolvidos+'"><div class="tgrMiniTitulo">Entregas</div><div class="tgrMiniAnel" style="background:'+primeiro+'"><strong>'+percentual+'%</strong></div><div class="tgrMiniLegenda">✓ '+atendidos+' · Falta '+restantes+'<br>Dev. '+devolvidos+'</div></div>'+
- '<div class="tgrMiniGrafico" title="Dentro do raio: '+dentro+'; fora do raio: '+fora+'; sem avaliação: '+(total-avaliados)+'"><div class="tgrMiniTitulo">Raio 150 m</div><div class="tgrMiniAnel" style="background:'+segundo+'"><strong>'+(avaliados?percentualRaio+'%':'—')+'</strong></div><div class="tgrMiniLegenda">Dentro '+dentro+'<br>Fora '+fora+'</div></div></div>';
+ '<div class="tgrMiniGrafico" title="Atendidos: '+atendidos+'; restantes: '+restantes+'; devolvidos: '+devolvidos+'"><div class="tgrMiniTitulo">Entregas</div><div class="tgrMiniAnel" style="background:'+primeiro+'"><strong>'+percentual+'%</strong></div><div class="tgrMiniLegenda">Atendidos '+atendidos+'/'+total+'<br>Devoluções '+devolvidos+'</div></div>'+
+ '<div class="tgrMiniGrafico" title="Dentro do raio: '+dentro+'; fora do raio: '+fora+'; sem avaliação: '+(total-avaliados)+'"><div class="tgrMiniTitulo">Raio de entrega</div><div class="tgrMiniAnel" style="background:'+segundo+'"><strong>'+(avaliados?percentualRaio+'%':'—')+'</strong></div><div class="tgrMiniLegenda">Dentro do raio '+dentro+'<br>Fora do raio '+fora+'</div></div></div>';
 }
 function tgrAtualizarMiniGraficos(){
  const info=document.getElementById('info');
