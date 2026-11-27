@@ -380,8 +380,8 @@ if ('serviceWorker' in navigator) {
 <div id="pixTela" class="pixTela" aria-hidden="true">
   <div class="pixCard">
     <div class="pixTopo">
-      <h2>Forma de Pagamento</h2>
-      <button id="pixFechar" class="pixFechar" type="button">FECHAR</button>
+      <h2>PIX para pagamento</h2>
+      <button id="pixFechar" class="pixFechar" type="button">VOLTAR AO ATENDIMENTO</button>
     </div>
     <div id="pixConteudo"></div>
   </div>
@@ -1304,7 +1304,8 @@ async function tgrEncerrarAtendimento(status,motivo){
  finally{tgrFinalizando=false;btn.disabled=false;}
 }
 document.getElementById('tgrPixAtendimentoBtn').onclick=()=>{
- if(tgrPedidoModal) abrirPagamento(tgrPedidoModal);
+ if(!tgrPedidoModal)return;
+ abrirPagamento(tgrPedidoModal);
 };
 document.getElementById('tgrFinalizarBtn').onclick=()=>tgrEncerrarAtendimento('ATENDIDO','');
 document.getElementById('tgrDevolucaoBtn').onclick=()=>{
@@ -1421,6 +1422,12 @@ function fecharPagamento(){
   if(!tela) return;
   tela.style.display='none';
   tela.setAttribute('aria-hidden','true');
+  // O modal de atendimento permanece aberto, sem reiniciar o atendimento.
+  const modal=document.getElementById('tgrAtendimentoModal');
+  if(modal && modal.classList.contains('ativo')){
+    const botao=document.getElementById('tgrPixAtendimentoBtn');
+    if(botao)botao.focus();
+  }
 }
 
 function atualizarEstadoListaPedidos(){
