@@ -300,6 +300,13 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
 .tgrMiniAnel strong{position:relative;font-size:12px;color:#30343b}
 .tgrMiniLegenda{font-size:9px;line-height:1.35;color:#555;margin-top:4px}
 @media(max-width:370px){.tgrResumoLinha{grid-template-columns:minmax(0,1fr) 142px;gap:5px}.tgrMiniGraficos{gap:2px}.tgrMiniAnel{width:56px;height:56px}.tgrMiniAnel:before{inset:10px}}
+/* Ajustes visuais de pagamento, sem alterar o fluxo de devolução */\n#pixTela{z-index:21000}
+.statusBtns .statusBtn{width:100%}
+.tgrPixAtendimentoBtn{background:#21836d!important}
+.tgrPixAtendimentoBtn:disabled{background:#aeb4b8!important;cursor:default;opacity:.8}
+.tgrFormaIcone{display:inline-flex;flex:none;align-items:center;justify-content:center;width:23px;height:23px;margin-left:3px;opacity:.72}
+.tgrFormaIcone img{width:21px;height:21px;object-fit:contain}
+.tgrFormaIcone svg{width:21px;height:21px}
 </style>
 <script>
 // TGR Offline V2 - registra o Service Worker assim que possível.
@@ -384,9 +391,10 @@ if ('serviceWorker' in navigator) {
   <h3 id="tgrModalTitulo">Atendimento</h3>
   <p id="tgrModalDescricao"></p>
   <div id="tgrModalOpcoes">
-   <button type="button" id="tgrFinalizarBtn">Finalizar atendimento</button>
+   <button type="button" id="tgrRepasseBtn" class="repasseAcao">Repasse — Retornar ao cliente</button>
    <button type="button" id="tgrDevolucaoBtn" class="devolucaoAcao">Devolução</button>
-   <button type="button" id="tgrRepasseBtn" class="repasseAcao">Repasse — retornar ao cliente</button>
+   <button type="button" id="tgrPixAtendimentoBtn" class="tgrPixAtendimentoBtn">PIX para pagamento</button>
+   <button type="button" id="tgrFinalizarBtn">Finalizar Atendimento</button>
   </div>
   <div id="tgrMotivoArea" style="display:none">
    <label for="tgrMotivoTexto" style="font-size:13px;font-weight:bold">Motivo da devolução (obrigatório)</label>
@@ -1241,6 +1249,9 @@ function tgrAbrirAtendimento(p){
  const modal=document.getElementById('tgrAtendimentoModal');
  document.getElementById('tgrModalTitulo').textContent='Pedido '+p.pedido;
  document.getElementById('tgrModalDescricao').textContent='Cliente: '+nomeFantasiaCliente(p.cliente)+' — escolha o resultado do atendimento.';
+ const btnPix=document.getElementById('tgrPixAtendimentoBtn');
+ btnPix.disabled=!dadosPix.has(normalizarCodigoCliente(p.cliente));
+ btnPix.title=btnPix.disabled?'PIX não disponível para este cliente':'Consultar PIX do cliente';
  document.getElementById('tgrModalOpcoes').style.display='block';
  document.getElementById('tgrMotivoArea').style.display='none';
  document.getElementById('tgrMotivoTexto').value='';
@@ -1292,6 +1303,9 @@ async function tgrEncerrarAtendimento(status,motivo){
  }catch(err){tgrNotificar((err&&err.message)||'Falha ao salvar o atendimento.','erro',5000);}
  finally{tgrFinalizando=false;btn.disabled=false;}
 }
+document.getElementById('tgrPixAtendimentoBtn').onclick=()=>{
+ if(tgrPedidoModal) abrirPagamento(tgrPedidoModal);
+};
 document.getElementById('tgrFinalizarBtn').onclick=()=>tgrEncerrarAtendimento('ATENDIDO','');
 document.getElementById('tgrDevolucaoBtn').onclick=()=>{
  document.getElementById('tgrModalOpcoes').style.display='none';
@@ -1484,6 +1498,14 @@ function tgrIconeRaioPedido(p){
  return '<span class="tgrRaioIcone '+raio.estado+'" role="img" aria-label="'+esc(raio.titulo)+'" title="'+esc(raio.titulo)+'"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M13.5 2 5 13h6l-1 9 9-13h-6l2-7z" fill="currentColor"/>'+(riscado?'<path d="M3 3 21 21" stroke="white" stroke-width="2.7" stroke-linecap="round"/>':'')+'</svg></span>';
 }
 
+function tgrIconePagamentoPedido(p){
+  const temPix=dadosPix.has(normalizarCodigoCliente(p.cliente));
+  // Na base atual, o CSV identifica apenas cobranças PIX.
+  // Sem PIX cadastrado, o ícone de boleto é uma indicação visual presumida.
+  const pix='<img src="data:image/png;base64,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" alt="">';
+  const boleto='<img src="data:image/png;base64,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" alt="">';
+  return '<span class="tgrFormaIcone" title="'+(temPix?'PIX disponível':'Sem PIX cadastrado (boleto presumido)')+'" aria-label="'+(temPix?'PIX disponível':'Boleto presumido')+'">'+(temPix?pix:boleto)+'</span>';
+}
 function renderPedidos(placa){
   const box=document.getElementById('pedidos');
   if(placa!==placaPosicaoListaTGR){
@@ -1504,14 +1526,11 @@ function renderPedidos(placa){
     const st=getStatus(p);
     const prioridade=atendimentoCliente(p.cliente);
     return '<div class="pedidoItem'+(prioridade?' prioritario':'')+(st==='repasse'?' repasse':st==='atendido'?' finalizado':st==='devolvido'?' devolvido':'')+'" data-i="'+i+'" title="Clique para localizar no mapa">'+
-      '<div class="pedidoTopo"><span class="pedidoNum">'+esc(numeroParada(p,i))+'ª entrega • Pedido '+esc(p.pedido)+' — '+esc(nomeFantasiaCliente(p.cliente))+'</span>'+tgrIconeRaioPedido(p)+'<span class="pedidoPeso">'+pesoNum(p.peso).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+' kg</span></div>'+
+      '<div class="pedidoTopo"><span class="pedidoNum">'+esc(numeroParada(p,i))+'ª entrega • Pedido '+esc(p.pedido)+' — '+esc(nomeFantasiaCliente(p.cliente))+'</span>'+tgrIconeRaioPedido(p)+tgrIconePagamentoPedido(p)+'<span class="pedidoPeso">'+pesoNum(p.peso).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+' kg</span></div>'+
       '<div>Cliente: '+esc(p.cliente)+' • '+esc(p.cidade)+'</div>'+
       (prioridade?'<div class="prioridadeDetalhes">'+detalhesAtendimento(prioridade)+'</div>':'')+
       '<div class="statusBtns">'+
       '<button class="statusBtn '+(st==='atendido'?'atendido':st==='devolvido'?'devolvido':st==='repasse'?'repasse':st==='em_atendimento'?'em_atendimento':'pendente')+'" data-i="'+i+'" '+(['atendido','devolvido'].includes(st)?'disabled':'')+'>'+({atendido:'Atendido',devolvido:'Devolvido',repasse:'Retomar atendimento',em_atendimento:'Continuar atendimento',pendente:'Iniciar atendimento'}[st]||'Iniciar atendimento')+'</button>'+
-      (dadosPix.has(normalizarCodigoCliente(p.cliente))
-        ? '<button class="pagamentoBtn" data-i="'+i+'">Forma de Pagamento</button>'
-        : '<button class="pagamentoBtn indisponivel" type="button" disabled>PIX indisponível</button>')+
       '</div></div>';
   }).join('')+'<div class="pedidosSemResultado">Nenhum pedido encontrado nesta rota.</div></div>';
   box.style.display='block';
@@ -1541,10 +1560,6 @@ function renderPedidos(placa){
   box.querySelectorAll('.statusBtn').forEach(btn=>btn.onclick=(ev)=>{
     ev.stopPropagation();
     alternarStatus(itens[Number(btn.dataset.i)]);
-  });
-  box.querySelectorAll('.pagamentoBtn').forEach(btn=>btn.onclick=(ev)=>{
-    ev.stopPropagation();
-    abrirPagamento(itens[Number(btn.dataset.i)]);
   });
 }
 
