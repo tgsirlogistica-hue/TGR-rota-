@@ -288,6 +288,18 @@ select{width:100%;font-size:16px;padding:10px;border:1px solid #bbb;border-radiu
 .tgrRaioIcone svg{width:17px;height:17px;display:block}
 .pedidoTopo .tgrRaioIcone{margin:0 7px}
 .pedidoTopo{gap:5px}.pedidoTopo .pedidoNum{min-width:0;flex:1}.pedidoTopo .pedidoPeso{white-space:nowrap;flex:none}
+
+/* Indicadores compactos: somente leitura, sem interferir no fluxo de devolução/reversão. */
+.tgrResumoLinha{display:grid;grid-template-columns:minmax(0,1fr) 166px;gap:9px;align-items:center}
+.tgrResumoDados{min-width:0;overflow-wrap:anywhere}
+.tgrMiniGraficos{display:grid;grid-template-columns:1fr 1fr;gap:6px;align-items:start}
+.tgrMiniGrafico{text-align:center;min-width:0}
+.tgrMiniTitulo{font-size:9px;color:#555;font-weight:700;margin-bottom:4px}
+.tgrMiniAnel{width:64px;height:64px;border-radius:50%;margin:auto;display:grid;place-items:center;position:relative;background:#e5e7eb}
+.tgrMiniAnel:before{content:"";position:absolute;inset:11px;border-radius:50%;background:#fff}
+.tgrMiniAnel strong{position:relative;font-size:12px;color:#30343b}
+.tgrMiniLegenda{font-size:9px;line-height:1.35;color:#555;margin-top:4px}
+@media(max-width:370px){.tgrResumoLinha{grid-template-columns:minmax(0,1fr) 142px;gap:5px}.tgrMiniGraficos{gap:2px}.tgrMiniAnel{width:56px;height:56px}.tgrMiniAnel:before{inset:10px}}
 </style>
 <script>
 // TGR Offline V2 - registra o Service Worker assim que possível.
@@ -1191,7 +1203,39 @@ setInterval(()=>{if(navigator.onLine&&tgrUsuario){tgrAtendSincronizar();tgrPlani
 // Um pedido encerrado não pode ser reaberto pelo motorista.
 // O status local é mantido entre sessões no mesmo navegador.
 let tgrPedidoModal=null,tgrFinalizando=false;
-function tgrRedesenharAtendimento(){renderPedidos(select.value);renderMapa(select.value);}
+function tgrMiniGraficosRota(placa){
+ const itens=itensDaRotaOrdenados(placa);
+ let atendidos=0,devolvidos=0,dentro=0,fora=0;
+ for(const p of itens){
+  const status=getStatus(p);
+  if(status==='atendido')atendidos++;
+  else if(status==='devolvido')devolvidos++;
+  // Não contabiliza raio de pedidos reabertos, pendentes ou em repasse.
+  if(status==='atendido'||status==='devolvido'){
+   const raio=tgrRaioPedido(p);
+   if(raio?.estado==='dentro')dentro++;
+   else if(raio?.estado==='fora')fora++;
+  }
+ }
+ const total=itens.length,restantes=Math.max(0,total-atendidos-devolvidos);
+ const avaliados=dentro+fora;
+ const percentual=total?Math.round(atendidos/total*100):0;
+ const percentualRaio=avaliados?Math.round(dentro/avaliados*100):0;
+ const pctAtendidos=total?atendidos/total*100:0;
+ const pctDevolvidos=total?devolvidos/total*100:0;
+ const pctDentro=avaliados?dentro/avaliados*100:0;
+ const primeiro='conic-gradient(#16843c 0% '+pctAtendidos+'%,#64748b '+pctAtendidos+'% '+(pctAtendidos+pctDevolvidos)+'%,#e5e7eb '+(pctAtendidos+pctDevolvidos)+'% 100%)';
+ const segundo=avaliados?'conic-gradient(#16843c 0% '+pctDentro+'%,#d44848 '+pctDentro+'% 100%)':'#e5e7eb';
+ return '<div class="tgrMiniGraficos" aria-label="Desempenho da rota">'+
+ '<div class="tgrMiniGrafico" title="Atendidos: '+atendidos+'; restantes: '+restantes+'; devolvidos: '+devolvidos+'"><div class="tgrMiniTitulo">Entregas</div><div class="tgrMiniAnel" style="background:'+primeiro+'"><strong>'+percentual+'%</strong></div><div class="tgrMiniLegenda">✓ '+atendidos+' · Falta '+restantes+'<br>Dev. '+devolvidos+'</div></div>'+
+ '<div class="tgrMiniGrafico" title="Dentro do raio: '+dentro+'; fora do raio: '+fora+'; sem avaliação: '+(total-avaliados)+'"><div class="tgrMiniTitulo">Raio 150 m</div><div class="tgrMiniAnel" style="background:'+segundo+'"><strong>'+(avaliados?percentualRaio+'%':'—')+'</strong></div><div class="tgrMiniLegenda">Dentro '+dentro+'<br>Fora '+fora+'</div></div></div>';
+}
+function tgrAtualizarMiniGraficos(){
+ const info=document.getElementById('info');
+ const destino=info?.querySelector('.tgrResumoGraficos');
+ if(destino&&select.value)destino.innerHTML=tgrMiniGraficosRota(select.value);
+}
+function tgrRedesenharAtendimento(){renderPedidos(select.value);renderMapa(select.value);tgrAtualizarMiniGraficos();}
 function tgrAbrirAtendimento(p){
  tgrPedidoModal=p;
  const modal=document.getElementById('tgrAtendimentoModal');
@@ -1560,9 +1604,9 @@ select.addEventListener('change',()=>{
   const motorista=itens[0].motorista||'Não informado';
   const peso=itens.reduce((s,x)=>s+pesoNum(x.peso),0);
   const cidades=[...new Set(itens.map(x=>String(x.cidade||'').trim()).filter(Boolean))];
-  info.innerHTML='<b>Motorista:</b> '+esc(motorista)+'<br><b>Entregas:</b> '+itens.length+
+  info.innerHTML='<div class="tgrResumoLinha"><div class="tgrResumoDados"><b>Motorista:</b> '+esc(motorista)+'<br><b>Entregas:</b> '+itens.length+
     '<br><b>Peso total:</b> '+peso.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+' kg'+
-    '<br><b>Cidade'+(cidades.length>1?'s':'')+':</b> '+(cidades.length?cidades.map(esc).join(', '):'Não informada');
+    '<br><b>Cidade'+(cidades.length>1?'s':'')+':</b> '+(cidades.length?cidades.map(esc).join(', '):'Não informada')+'</div><div class="tgrResumoGraficos">'+tgrMiniGraficosRota(placa)+'</div></div>';
   info.style.display='block';
 
   renderPedidos(placa);
